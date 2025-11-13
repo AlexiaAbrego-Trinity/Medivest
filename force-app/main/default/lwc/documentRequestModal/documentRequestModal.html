@@ -1,0 +1,262 @@
+<template>
+    <section class="wrap">
+        <!-- Header -->
+        <header class="head">
+            <div class="head__left">
+                <h2 class="title">Create Documents <span class="version">{VERSION}</span></h2>
+                <p class="subtitle">{headerSubtitle}</p>
+            </div>
+            <div class="head__right">
+                <!-- Reset -->
+                <button class="btn" onclick={handleReset} title="Reset">Reset</button>
+            </div>
+        </header>
+
+        <!-- Quick Search Section - Visual separation for user training -->
+        <div class="searchSection">
+            <div class="sectionLabel">Quick Search</div>
+            <div class="searchRow">
+                <input class="search" type="text" placeholder="Know a specific document? Search here..."
+                       value={searchTerm} oninput={onSearchInput} onkeydown={onSearchKeydown}/>
+                <button class="btn" onclick={doSearch}>Search</button>
+            </div>
+        </div>
+
+        <!-- Browse by Category Section -->
+        <div class="selectionSection">
+            <div class="sectionLabel">Browse by Category</div>
+            <!-- Stepper - Now clickable for navigation -->
+            <nav class="steps">
+                <div class={step1Class} onclick={goToStep1} data-step="1">1. Department</div>
+                <div class={step2Class} onclick={goToStep2} data-step="2">2. Sub-Department</div>
+                <div class={step3Class} onclick={goToStep3} data-step="3">3. Document</div>
+                <div class={step4Class} onclick={goToStep4} data-step="4">4. Details</div>
+            </nav>
+        </div>
+
+        <!-- STEP 1: Departments -->
+        <template if:true={showStep1}>
+            <div class="card">
+                <div class="grid">
+                    <template for:each={departments} for:item="d">
+                        <button key={d.value} class={d.className} data-value={d.value}
+                                onclick={pickDepartment}>{d.label}</button>
+                    </template>
+                </div>
+                <template if:false={hasDepartments}>
+                    <div class="empty">No departments found.</div>
+                </template>
+            </div>
+        </template>
+
+        <!-- STEP 2: SubDepartments (si existen) -->
+        <template if:true={showStep2}>
+            <div class="card">
+                <div class="grid">
+                    <template for:each={subDepartments} for:item="s">
+                        <button key={s.value} class={s.className} data-value={s.value}
+                                onclick={pickSubDepartment}>{s.label}</button>
+                    </template>
+                </div>
+                <template if:false={hasSubDepartments}>
+                    <div class="empty">No sub-departments — continue to Documents.</div>
+                </template>
+            </div>
+        </template>
+
+        <!-- STEP 3: Documents -->
+        <template if:true={showStep3}>
+            <div class="card">
+                <div class="grid docs">
+                    <template for:each={templates} for:item="t">
+                        <button key={t.id} class={t.className} data-id={t.id}
+                                onclick={pickTemplate}>
+                            {t.name}
+                        </button>
+                    </template>
+                </div>
+                <template if:false={hasTemplates}>
+                    <div class="emptyState">
+                        <div class="emptyIcon">📄</div>
+                        <div class="emptyTitle">No Documents Available</div>
+                        <div class="emptyMessage">
+                            No templates have been created for this department yet.
+                            <br>Contact your administrator to add documents.
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </template>
+
+        <!-- STEP 4: Details (genérico) -->
+        <template if:true={showStep4}>
+            <div class="card">
+                <div class="detailsHeader">
+                    <div>
+                        <div class="docTitle">{selectedTemplateName}</div>
+                        <div class="docPath">
+                            <template if:true={selectedDepartment}>{selectedDepartment}</template>
+                            <template if:true={selectedSubDepartment}> / {selectedSubDepartment}</template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Advanced Document UI (DOC_RULES) -->
+                <template if:true={isAdvancedDocument}>
+                    <!-- Document content area -->
+                    <template if:true={detailsTextHtml}>
+                        <div class="fieldRow">
+                            <label for="richTextInput">Document Content</label>
+                            <lightning-input-rich-text
+                                id="richTextInput"
+                                value={detailsTextHtml}
+                                onchange={handleRichTextChange}
+                                formats="font,size,bold,italic,underline,strike,list,indent,align,link,image,clean,table,header,code,code-block,script,blockquote,direction"
+                                valid>
+                            </lightning-input-rich-text>
+                        </div>
+                    </template>
+
+                    <!-- Checkbox Options -->
+                    <template if:true={detailsOptions}>
+                        <template for:each={detailsOptions} for:item="option">
+                            <div key={option.key} class="fieldRow">
+                                <lightning-input
+                                    type="checkbox"
+                                    label={option.label}
+                                    data-key={option.key}
+                                    onchange={handleOptionChange}>
+                                </lightning-input>
+                            </div>
+                        </template>
+                    </template>
+
+                    <!-- Dinamic Input -->
+                    <template if:true={hasDynamicInputs}>
+                    <template for:each={inputsWithValues} for:item="inp">
+                        <div key={inp.key} class="fieldRow">
+
+                        <!-- 1) LOOKUP Diagnosis Code (si aplica) -->
+                        <template if:true={inp._isLookup}>
+                            <div class="slds-form-element">
+                            <label class="slds-form-element__label">
+                                {inp.label}
+                                <template if:true={inp.required}>
+                                <abbr class="slds-required" title="required">*</abbr>
+                                </template>
+                            </label>
+
+                            <div class={lookupComboboxClass} role="combobox" aria-expanded={hasCodeOptions} aria-haspopup="listbox">
+                                <div class="slds-combobox__form-element slds-input-has-icon slds-input-has-icon_left" role="none">
+                                <lightning-input
+                                    type="search"
+                                    value={inp.displayValue}
+                                    placeholder={inp._placeholder}
+                                    onchange={handleLookupTyping}
+                                    onkeydown={handleLookupKeydown}>
+                                </lightning-input>
+                                <span class="slds-icon_container slds-input__icon slds-input__icon_left" title="Search">
+                                    <svg class="slds-icon slds-icon_x-small slds-icon-text-default" aria-hidden="true">
+                                    <use xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#search"></use>
+                                    </svg>
+                                </span>
+                                </div>
+
+                                <!-- IMPORTANTE: en LWC el if:true DEBE ir en <template>, no en <div> -->
+                                <template if:true={hasCodeOptions}>
+                                <div class="slds-dropdown slds-dropdown_length-5 slds-dropdown_fluid" role="listbox">
+                                    <ul class="slds-listbox slds-listbox_vertical slds-listbox_fluid" role="presentation">
+                                    <template for:each={codeOptions} for:item="opt">
+                                        <li key={opt.value} role="presentation" class="slds-listbox__item">
+                                        <div
+                                            role="option"
+                                            data-id={opt.value}
+                                            data-label={opt.label}
+                                            onclick={handleSelectCode}
+                                            class="slds-media slds-listbox__option slds-listbox__option_plain slds-media_small">
+                                            <span class="slds-media__body">
+                                            <span class="slds-truncate" title={opt.label}>{opt.label}</span>
+                                            </span>
+                                        </div>
+                                        </li>
+                                    </template>
+                                    </ul>
+                                </div>
+                                </template>
+                            </div>
+
+                            <!-- <template if:true={isLookupMissing}>
+                                <div class="slds-form-element__help">This field is required</div>
+                            </template>-->
+                            </div>
+                        </template>
+
+                        <!-- 2) Si NO es lookup, sigue la lógica normal -->
+                        <template if:false={inp._isLookup}>
+                            <!-- picklist combobox -->
+                            <template if:true={inp._isCombo}>
+                            <lightning-combobox
+                                name={inp.key}
+                                label={inp.label}
+                                required={inp.required}
+                                data-key={inp.key}
+                                value={inp.value}
+                                options={inp._options}
+                                onchange={handleDynamicInputChange}>
+                            </lightning-combobox>
+                            </template>
+
+                            <!-- inputs -->
+                            <template if:false={inp._isCombo}>
+                            <lightning-input
+                                type={inp._renderType}
+                                label={inp.label}
+                                required={inp.required}
+                                data-key={inp.key}
+                                value={inp.value}
+                                formatter={inp._formatter}
+                                currency-code={inp._currencyCode}
+                                step={inp._step}
+                                onchange={handleDynamicInputChange}
+                                oninput={handleDynamicInputChange}>
+                            </lightning-input>
+                            </template>
+                        </template>
+
+                        </div>
+                    </template>
+                    </template>
+
+
+                </template>
+
+                <!-- Simple Document UI (fallback) -->
+                <template if:false={isAdvancedDocument}>
+                    <div class="fieldRow">
+                        <label for="optionalInput">Optional Content</label>
+                        <textarea id="optionalInput" class="textarea"
+                                  oninput={onOptionalChange}>{optionalContent}</textarea>
+                    </div>
+                </template>
+
+
+                
+                <!-- Actions -->
+                <div class="actions">
+                    <button class="btn ghost" onclick={goBackToDocs} disabled={loading}>Back</button>
+                    <button class="btn primary" onclick={generate} disabled={isGenerateDisabled}>
+                        <template if:true={loading}>
+                            <div class="loading-container fade-in">
+                                <div class="stylish-spinner"></div>
+                                <span class="loading-text">{loadingMessage}</span>
+                            </div>
+                        </template>
+                        <template if:false={loading}>
+                            Generate
+                        </template>
+                    </button>
+                </div>
+            </div>
+        </template>
+    </section>
+</template>

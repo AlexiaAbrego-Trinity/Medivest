@@ -1,0 +1,165 @@
+.wrap { padding: 12px; }
+.head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+.head__left .title { font-size: 1.1rem; margin: 0; }
+.head__left .subtitle { margin: 2px 0 0 0; color:#666; font-size:.85rem; }
+.head__right { display:flex; gap:8px; }
+
+.btn { background:#1555f9; color:#fff; border:none; padding:8px 12px; border-radius:8px; cursor:pointer; }
+.btn:hover { filter: brightness(.95); }
+.btn.ghost { background:#eef2ff; color:#1555f9; }
+
+.searchSection {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 16px;
+}
+
+.selectionSection {
+    margin-bottom: 12px;
+}
+
+.sectionLabel {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 8px;
+}
+
+.searchRow { display:flex; gap:8px; margin-bottom:0; }
+
+.steps { display:flex; gap:8px; margin-top:0; margin-bottom:12px; flex-wrap:wrap; }
+.step {
+    padding:6px 10px;
+    border-radius:999px;
+    background:#f2f4f7;
+    color:#555;
+    font-size:.8rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.step:hover {
+    background:#e5e7eb;
+    transform: translateY(-1px);
+}
+.step.active {
+    background:#1555f9;
+    color:#fff;
+    cursor: default;
+}
+.step.active:hover {
+    transform: none;
+}
+.search { flex:1; padding:10px 12px; border:1px solid #dde1e6; border-radius:8px; }
+
+.card { border:1px solid #e5e7eb; border-radius:10px; padding:12px; background:#fff; }
+.grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:8px; }
+.grid.docs { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+
+.pill { width:100%; text-align:left; border:1px solid #e5e7eb; background:#f8fafc; color:#111; padding:10px 12px; border-radius:12px; cursor:pointer; }
+.pill:hover { background:#eef2ff; border-color:#d7defe; }
+.pill.selected { background:#1555f9; color:#fff; border-color:#1555f9; }
+
+.empty { text-align:center; color:#666; padding:16px 0; }
+
+.emptyState {
+    text-align: center;
+    padding: 32px 16px;
+    color: #6b7280;
+}
+
+.emptyIcon {
+    font-size: 2rem;
+    margin-bottom: 12px;
+    opacity: 0.6;
+}
+
+.emptyTitle {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 8px;
+}
+
+.emptyMessage {
+    font-size: 0.875rem;
+    line-height: 1.5;
+    max-width: 300px;
+    margin: 0 auto;
+}
+
+.detailsHeader { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+.docTitle { font-weight:600; }
+.docPath { color:#666; font-size:.85rem; }
+
+.fieldRow { display:flex; flex-direction:column; gap:6px; margin:12px 0; }
+.textarea { min-height:120px; border:1px solid #dde1e6; border-radius:8px; padding:8px 10px; }
+
+.actions { display:flex; gap:8px; justify-content:flex-end; }
+.btn.primary { background:#0ea5e9; }
+
+/* ===== STYLISH LOADING ANIMATION ===== */
+.loading-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    opacity: 1;
+    transition: opacity 0.3s ease-in-out;
+}
+
+.loading-container.fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.stylish-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #e5e7eb;
+    border-top: 2px solid #1555f9;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    display: inline-block;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.loading-text {
+    font-size: 0.875rem;
+    color: #1555f9;
+    font-weight: 500;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* Smooth button state transitions */
+.btn {
+    transition: all 0.2s ease-in-out;
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn:disabled:hover {
+    filter: none;
+}
+
+.slds-dropdown {
+    position: relative;
+    max-height: 7rem;
+}

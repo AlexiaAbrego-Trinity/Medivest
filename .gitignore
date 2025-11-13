@@ -1,0 +1,11 @@
+
+# Ignorar configuraciones locales y temporales
+**/node_modules/
+**/.vscode/
+
+# Archivos de log
+*.log
+
+# Archivos generados por el sistema
+.DS_Store
+Thumbs.db
