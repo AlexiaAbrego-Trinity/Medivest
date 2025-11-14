@@ -159,7 +159,17 @@
     filter: none;
 }
 
-.slds-dropdown {
-    position: relative;
-    max-height: 7rem;
+.claimsField {
+    margin-top: 0.75rem;
+}
+
+.claimsScroll {
+    max-height: 220px;   /* ajusta al gusto */
+    overflow-y: auto;
+    padding: 0.25rem 0;
+}
+
+.claimsScroll lightning-input {
+    display: block;
+    margin-bottom: 0.25rem;
 }
