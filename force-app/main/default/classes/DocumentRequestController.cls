@@ -1620,5 +1620,73 @@ public static void updateDiagnosisCodes(Id caseId, Id icd9Id, Id icd10Id) {
 }
 
 
+public class DynamicInputDTO {
+    @AuraEnabled public String key;
+    @AuraEnabled public String fieldApi;
+    @AuraEnabled public String value;
+}
+
+@AuraEnabled
+public static void persistDynamicInputs(Id caseId, List<Map<String, Object>> inputs) {
+    System.debug('🔥 persistDynamicInputs CALLED');
+    System.debug('caseId = ' + caseId);
+    System.debug('inputs size = ' + (inputs == null ? 0 : inputs.size()));
+    System.debug('raw inputs = ' + inputs);
+
+    if (caseId == null) {
+        throw new AuraHandledException('Missing caseId.');
+    }
+    if (inputs == null || inputs.isEmpty()) {
+        return;
+    }
+
+    Schema.DescribeSObjectResult d = Case.SObjectType.getDescribe();
+    if (!d.isAccessible()) {
+        throw new AuraHandledException('No access to Case.');
+    }
+
+    Map<String, Schema.SObjectField> fmap = d.fields.getMap();
+    Case c = new Case(Id = caseId);
+
+    for (Map<String, Object> m : inputs) {
+        String key      = (String) m.get('key');
+        String fieldApi = (String) m.get('fieldApi');
+        String value    = (String) m.get('value');
+
+        System.debug('➡️ Processing input: key=' + key + ', fieldApi=' + fieldApi + ', value=' + value);
+
+        if (String.isBlank(fieldApi)) {
+            continue;
+        }
+        if (!fmap.containsKey(fieldApi)) {
+            System.debug('⚠️ Field not found on Case: ' + fieldApi);
+            continue;
+        }
+        if (!fmap.get(fieldApi).getDescribe().isUpdateable()) {
+            System.debug('⚠️ No FLS to update field: ' + fieldApi);
+            continue;
+        }
+
+        c.put(fieldApi, value);
+    }
+
+    System.debug('💾 Updating Case with dynamic inputs...');
+    update c;
+    System.debug('✅ Case updated successfully in persistDynamicInputs');
+
+    // (Opcional) verificación post-update
+    Case c2 = [
+        SELECT trm_Documentation_Request__c
+        FROM Case
+        WHERE Id = :caseId
+        LIMIT 1
+    ];
+    System.debug('🔎 After update DB value = ' + c2.trm_Documentation_Request__c);
+}
+
+
+
+
+
 
 }

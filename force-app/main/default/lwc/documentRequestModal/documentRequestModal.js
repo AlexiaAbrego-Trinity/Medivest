@@ -27,6 +27,8 @@ import searchCodesByType
   from '@salesforce/apex/DocumentRequestController.searchCodesByType';
   import searchIcdCodes from '@salesforce/apex/DocumentRequestController.searchIcdCodes';
   import updateDiagnosisCodes from '@salesforce/apex/DocumentRequestController.updateDiagnosisCodes';
+  import persistDynamicInputs from '@salesforce/apex/DocumentRequestController.persistDynamicInputs';
+
 
 
 
@@ -224,10 +226,38 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
         inputs: [
             {
             key: "addressToUse",
-            label: "Select Entity Address",
+            label: "Please Select Entity Address",
             type: "picklist",
             required: true,
             values: [],
+            }
+        ],
+        },
+        {
+        match: "email template - cms submission - additional items needed",
+        baseLines: [],
+        options: [],
+        inputs: [
+            {
+            key: "textInput",
+            label: "Please provide the requested additional documentation",
+            type: "text",
+            required: true,
+            targetFieldApi: "trm_Documentation_Request__c"
+            }
+        ],
+        },
+                {
+        match: "email template - cms approval - counter higher or lower",
+        baseLines: [],
+        options: [],
+        inputs: [
+            {
+            key: "textInput",
+            label: "Please describe the reason for the set-aside adjustment",
+            type: "text",
+            required: true,
+            targetFieldApi: "trm_Documentation_Request__c"
             }
         ],
         },
@@ -919,12 +949,12 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
                 console.log('Using enhanced generation for advanced document');
                 this.loadingMessage = 'Processing advanced document rules...';
 
-                // Generate template content using JavaScript DOC_RULES
+                // 2.1 Generate template content using DOC_RULES
                 const templateContent = this.generateTemplateContent(this.currentRule, this.selectedOptions);
 
-                // Determine checkbox value
+                // 2.2 Determine checkbox value (for rules that affect checkbox)
                 let checkboxValue = false;
-                if (this.selectedOptions && this.selectedOptions.length > 0) {
+                if (this.selectedOptions && this.selectedOptions.length > 0 && this.currentRule.options) {
                     for (const option of this.currentRule.options) {
                         if (this.selectedOptions.includes(option.key) && option.affectsCheckbox) {
                             checkboxValue = true;
@@ -933,7 +963,7 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
                     }
                 }
 
-                // 🚨 MATT'S DEBUG: Edison Template Field Population Before WebMerge
+                // Edison debug (unchanged)
                 const isEdisonTemplate = (this.currentRule.targetFieldApi === 'trm_Edison_Template__c');
                 if (isEdisonTemplate) {
                     console.log('🔥 EDISON DEBUG: About to populate trm_Edison_Template__c field BEFORE webmerge');
@@ -943,85 +973,53 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
                     console.log('  - Content Preview: "' + (templateContent ? templateContent.substring(0, 100) + '...' : 'NULL') + '"');
                     console.log('  - Checkbox Field: ' + this.currentRule.checkboxFieldApi);
                     console.log('  - Checkbox Value: ' + checkboxValue);
-                    console.log('🎯 EDISON DEBUG: This field MUST be populated BEFORE webmerge payload is sent');
                 }
 
-                // Update case template fields before generation
+                // 2.3 Update case template fields before generation (if rule defines targetFieldApi)
                 try {
-                  // Only call when rule actually defines a target field
-                  if (this.currentRule?.targetFieldApi) {
-                      console.log('💾 Calling updateCaseTemplateFields (guarded)...');
-                      await updateCaseTemplateFields({
-                          caseId: this.recordId,
-                          targetFieldApi: this.currentRule.targetFieldApi,
-                          value: templateContent,
-                          checkboxFieldApi: this.currentRule.checkboxFieldApi || null,
-                          checkboxValue: checkboxValue
-                      });
-                      console.log('✅ Case template fields updated successfully');
-                  } else {
-                      console.log('ℹ️ No targetFieldApi in rule — skipping updateCaseTemplateFields');
-                  }
+                    if (this.currentRule?.targetFieldApi) {
+                        console.log('💾 Calling updateCaseTemplateFields (guarded)...');
+                        await updateCaseTemplateFields({
+                            caseId: this.recordId,
+                            targetFieldApi: this.currentRule.targetFieldApi,
+                            value: templateContent,
+                            checkboxFieldApi: this.currentRule.checkboxFieldApi || null,
+                            checkboxValue: checkboxValue
+                        });
+                        console.log('✅ Case template fields updated successfully');
+                    } else {
+                        console.log('ℹ️ No targetFieldApi in rule — skipping updateCaseTemplateFields');
+                    }
                 } catch (fieldError) {
                     console.warn('❌ Failed to update Case template fields:', fieldError);
                     if (isEdisonTemplate) {
                         console.error('🔥 EDISON DEBUG: CRITICAL - Edison template field population FAILED!');
                     }
-                    // Continue with generation even if field update fails
+                    // Continue anyway
                 }
 
-                // STEP 3: Generate document
-                this.loadingMessage = 'Generating document...';
-                console.log('🖥️ UI: About to call mergeWithMapping (production method)');
-
-                // 🚨 MATT'S DEBUG: Critical timing validation for Edison template
-                if (isEdisonTemplate) {
-                    console.log('🎯 EDISON DEBUG: ===== CRITICAL TIMING VALIDATION =====');
-                    console.log('🔥 EDISON DEBUG: trm_Edison_Template__c field has been populated');
-                    console.log('🚀 EDISON DEBUG: About to send webmerge payload - field MUST be populated now');
-                    console.log('📋 EDISON DEBUG: WebMerge will query Case record and should find populated field');
-                    console.log('🎯 EDISON DEBUG: ===== END TIMING VALIDATION =====');
-                }
-
-                // 🚨 TRINITY WEBMERGE DEBUG: Log full object being sent to WebMerge
-                const webmergePayload = {
-                    mappingId: this.selectedTemplateId,
-                    recordId: this.recordId,
-                    objectApiName: objectApiName
-                };
-                console.log('🚀 TRINITY WEBMERGE DEBUG: Full payload being sent to mergeWithMapping:');
-                console.log('📦 Payload Object:', JSON.stringify(webmergePayload, null, 2));
-                console.log('🔍 Payload Details:');
-                console.log('  - mappingId (selectedTemplateId):', webmergePayload.mappingId);
-                console.log('  - recordId:', webmergePayload.recordId);
-                console.log('  - objectApiName:', webmergePayload.objectApiName);
-
-                if (isEdisonTemplate) {
-                    console.log('🔥 EDISON DEBUG: Sending webmerge payload NOW - Edison field should be populated');
-                }
-                
-                // --- Carrier Letter: persist selected Supporting_Claims__c into Case.Selected_Claims__c ---
+                // 2.4 Carrier letters: persist selected Supporting_Claims__c
                 if (
-                  this.currentRule &&
-                  this.isCase &&
-                  (
-                    this.currentRule.match === "cover letter - cms submission - carrier letter" ||
-                    this.currentRule.match === "email template - requesting comorbidities from broker" ||
-                    this.currentRule.match === "email template - requesting comorbidities from kevin puckett"
-                  )
+                    this.currentRule &&
+                    this.isCase &&
+                    (
+                        this.currentRule.match === "cover letter - cms submission - carrier letter" ||
+                        this.currentRule.match === "email template - requesting comorbidities from broker" ||
+                        this.currentRule.match === "email template - requesting comorbidities from kevin puckett"
+                    )
                 ) {
-                  try {
-                    await updateSelectedClaims({
-                      recordId: this.recordId,
-                      claimIds: this.selectedClaimIds || [],
-                    });
-                  } catch (e) {
-                    console.warn("Failed to update selected claims:", e);
-                    // Non-blocking: continue with merge even if this fails
-                  }
+                    try {
+                        await updateSelectedClaims({
+                            recordId: this.recordId,
+                            claimIds: this.selectedClaimIds || [],
+                        });
+                    } catch (e) {
+                        console.warn("Failed to update selected claims:", e);
+                        // Non-blocking
+                    }
                 }
 
-                // --- Submitter Letter: validate and persist address before merging ---
+                // 2.5 Submitter Letter: validate & persist address + diagnosis codes
                 if (this.isSubmitterLetterDoc && this.isCase) {
                     const addr = this.valuesByKey?.addressToUse || null;
 
@@ -1036,13 +1034,13 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
                     }
 
                     try {
-                        // 1) Guardar la dirección en el Case
+                        // 1) Save address on Case
                         await setCaseAddress({
                             caseId: this.recordId,
                             address: addr
                         });
 
-                        // 2) SIEMPRE actualizar ICD-9 / ICD-10 + trm_All_Diagnosis_Codes__c
+                        // 2) Always update ICD-9 / ICD-10 + trm_All_Diagnosis_Codes__c
                         await updateDiagnosisCodes({
                             caseId: this.recordId,
                             icd9Id: this.currentIcd9Id || null,
@@ -1061,27 +1059,88 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
                     }
                 }
 
+                // 2.6 Advanced dynamic inputs (includes " textInput)
+                //    Example: rule.inputs = [{ key: 'textInput', targetFieldApi: 'trm_Info__c', ... }]
+                if (Array.isArray(this.currentInputs) && this.currentInputs.length > 0) {
+                    // a) Validate required fields
+                    const missing = this.currentInputs.filter(
+                        (inp) => inp.required && !this.valuesByKey?.[inp.key]
+                    );
 
+                    if (missing.length > 0) {
+                        this.showToast(
+                            'Missing information',
+                            'Please fill in all required fields before generating the document.',
+                            'warning'
+                        );
+                        this.loading = false;
+                        return;
+                    }
 
-                //docId = await mergeWithMapping(webmergePayload);
+                    // b) Build payload only for inputs that have a targetFieldApi
+                    const dynamicInputPayload = [];
 
-                // === BEGIN  immediate download  ===
+                    for (const inp of this.currentInputs) {
+                        if (!inp.targetFieldApi) continue; // only those mapped to a Case field
+
+                        const key = inp.key;
+                        const value = this.valuesByKey?.[key] || null;
+
+                        dynamicInputPayload.push({
+                            key: key,
+                            fieldApi: inp.targetFieldApi,
+                            value: value
+                        });
+                    }
+
+                    // c) Call Apex to persist values on Case (so Formstack can read them)
+                    if (dynamicInputPayload.length > 0) {
+                        console.log('dynamicInputPayload',dynamicInputPayload);
+                        console.log(
+    'LWC → persistDynamicInputs payload:',
+    JSON.stringify(dynamicInputPayload, null, 2)
+);
+                        try {
+                            await persistDynamicInputs({
+                                caseId: this.recordId,
+                                inputs: dynamicInputPayload
+                            });
+                        } catch (e) {
+                            console.warn('Failed to persist dynamic inputs', e);
+                            this.showToast(
+                                'Error',
+                                this.errMsg(e) || 'Failed to save document inputs on the Case.',
+                                'error'
+                            );
+                            this.loading = false;
+                            return;
+                        }
+                    }
+                }
+
+                // 2.7 DEBUG payload to WebMerge (unchanged)
+                this.loadingMessage = 'Generating document...';
+                console.log('🖥️ UI: About to call mergeWithMapping (production method)');
+
+                const webmergePayload = {
+                    mappingId: this.selectedTemplateId,
+                    recordId: this.recordId,
+                    objectApiName: objectApiName
+                };
+                console.log('🚀 TRINITY WEBMERGE DEBUG: Full payload being sent to mergeWithMapping:');
+                console.log('📦 Payload Object:', JSON.stringify(webmergePayload, null, 2));
+
+                // === Immediate download ===
                 const payload = await mergeAndReturnFile({
-                mappingId: this.selectedTemplateId,
-                recordId: this.recordId,
-                objectApiName: objectApiName
+                    mappingId: this.selectedTemplateId,
+                    recordId: this.recordId,
+                    objectApiName: objectApiName
                 });
 
-                // 1) Download file
                 this.downloadBase64File(payload.fileName, payload.mimeType, payload.base64Data);
-
-                // 2) Preserve existing behavior using the same docId
                 docId = payload.contentDocumentId;
-                // === END ===
 
-
-
-                // Clear template fields after generation (cleanup)
+                // 2.8 Cleanup: clear template fields (if rule had targetFieldApi)
                 try {
                     if (this.currentRule?.targetFieldApi) {
                         await updateCaseTemplateFields({
@@ -1100,14 +1159,10 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
 
                 console.log('🖥️ UI: mergeWithMapping returned docId =', docId);
             } else {
-                // Simple document - use the production method
+                // Simple document branch (tal como ya lo tienes)
                 console.log('Using basic generation for simple document');
                 this.loadingMessage = 'Generating document...';
-                console.log('🖥️ UI: About to call mergeWithMapping');
-                console.log('🖥️ UI: mappingId =', this.selectedTemplateId);
-                console.log('🖥️ UI: recordId =', this.recordId);
 
-                // 🚨 TRINITY WEBMERGE DEBUG: Log full object being sent to WebMerge (Simple Document)
                 const webmergePayload = {
                     mappingId: this.selectedTemplateId,
                     recordId: this.recordId,
@@ -1115,29 +1170,17 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
                 };
                 console.log('🚀 TRINITY WEBMERGE DEBUG: Full payload being sent to mergeWithMapping (SIMPLE DOC):');
                 console.log('📦 Payload Object:', JSON.stringify(webmergePayload, null, 2));
-                console.log('🔍 Payload Details:');
-                console.log('  - mappingId (selectedTemplateId):', webmergePayload.mappingId);
-                console.log('  - recordId:', webmergePayload.recordId);
-                console.log('  - objectApiName:', webmergePayload.objectApiName);
 
-                //docId = await mergeWithMapping(webmergePayload);
-                // === BEGIN patch: maintain behavior + add immediate download  ===
                 const payload = await mergeAndReturnFile({
-                mappingId: this.selectedTemplateId,
-                recordId: this.recordId,
-                objectApiName: objectApiName
+                    mappingId: this.selectedTemplateId,
+                    recordId: this.recordId,
+                    objectApiName: objectApiName
                 });
 
-                // 1) Download NOW
                 this.downloadBase64File(payload.fileName, payload.mimeType, payload.base64Data);
-
-                // 2) Retain existing behavior
                 docId = payload.contentDocumentId;
-                // === END parche ===
-
-
-                console.log('🖥️ UI: mergeWithMapping returned docId =', docId);
             }
+
 
             console.log('🖥️ UI: FINAL docId before file opening:', docId);
 

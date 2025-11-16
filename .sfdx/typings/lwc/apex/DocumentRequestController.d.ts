@@ -61,3 +61,6 @@ declare module "@salesforce/apex/DocumentRequestController.searchIcdCodes" {
 declare module "@salesforce/apex/DocumentRequestController.updateDiagnosisCodes" {
   export default function updateDiagnosisCodes(param: {caseId: any, icd9Id: any, icd10Id: any}): Promise<any>;
 }
+declare module "@salesforce/apex/DocumentRequestController.persistDynamicInputs" {
+  export default function persistDynamicInputs(param: {caseId: any, inputs: any}): Promise<any>;
+}
