@@ -34,3 +34,30 @@ declare module "@salesforce/apex/DocumentRequestController.fetchClaims" {
 declare module "@salesforce/apex/DocumentRequestController.updateSelectedClaims" {
   export default function updateSelectedClaims(param: {recordId: any, claimIds: any}): Promise<any>;
 }
+declare module "@salesforce/apex/DocumentRequestController.fetchPayeeAddresses" {
+  export default function fetchPayeeAddresses(param: {caseId: any}): Promise<any>;
+}
+declare module "@salesforce/apex/DocumentRequestController.setCaseAddress" {
+  export default function setCaseAddress(param: {caseId: any, address: any}): Promise<any>;
+}
+declare module "@salesforce/apex/DocumentRequestController.searchCodes" {
+  export default function searchCodes(param: {term: any}): Promise<any>;
+}
+declare module "@salesforce/apex/DocumentRequestController.searchCodesForDiagnosis" {
+  export default function searchCodesForDiagnosis(param: {term: any, codeType: any}): Promise<any>;
+}
+declare module "@salesforce/apex/DocumentRequestController.updateCaseDiagnosisCodes" {
+  export default function updateCaseDiagnosisCodes(param: {caseId: any, codeId: any}): Promise<any>;
+}
+declare module "@salesforce/apex/DocumentRequestController.fetchDiagnosisContextForCase" {
+  export default function fetchDiagnosisContextForCase(param: {caseId: any}): Promise<any>;
+}
+declare module "@salesforce/apex/DocumentRequestController.searchCodesByType" {
+  export default function searchCodesByType(param: {term: any, codeType: any}): Promise<any>;
+}
+declare module "@salesforce/apex/DocumentRequestController.searchIcdCodes" {
+  export default function searchIcdCodes(param: {term: any, icdType: any}): Promise<any>;
+}
+declare module "@salesforce/apex/DocumentRequestController.updateDiagnosisCodes" {
+  export default function updateDiagnosisCodes(param: {caseId: any, icd9Id: any, icd10Id: any}): Promise<any>;
+}

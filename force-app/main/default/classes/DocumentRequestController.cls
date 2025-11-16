@@ -755,6 +755,870 @@ public with sharing class DocumentRequestController {
     }
 
 
+        @AuraEnabled(cacheable=true)
+    public static List<OptionDTO> fetchPayeeAddresses(Id caseId) {
+        List<OptionDTO> out = new List<OptionDTO>();
+        if (caseId == null) return out;
+
+        Case c = [
+            SELECT Id,
+                Payee_Name__c,
+                Payee_Address__r.Address__c
+            FROM Case
+            WHERE Id = :caseId
+            LIMIT 1
+        ];
+
+        // Billing (Case.Payee_Address__r.Address__c)
+        if (c.Payee_Address__r != null && c.Payee_Address__r.Address__c != null) {
+            System.Address a = c.Payee_Address__r.Address__c;
+            String billingVal = formatAddress(a.street, a.city, a.state, a.postalCode, a.country);
+            if (!String.isBlank(billingVal)) {
+                out.add(new OptionDTO('Billing - ' + billingVal.replace('\n', ' '), billingVal));
+            }
+        }
+
+        // Mailing / Main desde Account (Payee_Name__c)
+        if (c.Payee_Name__c != null) {
+            Account acc = [
+                SELECT Id, Name,
+                    BillingStreet, BillingCity, BillingState, BillingPostalCode, BillingCountry,
+                    ShippingStreet, ShippingCity, ShippingState, ShippingPostalCode, ShippingCountry
+                FROM Account
+                WHERE Id = :c.Payee_Name__c
+                LIMIT 1
+            ];
+
+            String mailing = formatAddress(
+                acc.BillingStreet, acc.BillingCity, acc.BillingState, acc.BillingPostalCode, acc.BillingCountry
+            );
+            if (!String.isBlank(mailing)) {
+                out.add(new OptionDTO('Mailing - ' + mailing.replace('\n', ' '), mailing));
+            }
+
+            String mainPhysical = formatAddress(
+                acc.ShippingStreet, acc.ShippingCity, acc.ShippingState, acc.ShippingPostalCode, acc.ShippingCountry
+            );
+            if (!String.isBlank(mainPhysical)) {
+                out.add(new OptionDTO('Main/Physical - ' + mainPhysical.replace('\n', ' '), mainPhysical));
+            }
+        }
+
+        return out;
+    }
+
+        private static String formatAddress(String street, String city, String state, String postal, String country) {
+        // Join non-blank parts into a human-readable multiline address
+        List<String> line1 = new List<String>();
+        if (!String.isBlank(street)) line1.add(street);
+
+        List<String> line2 = new List<String>();
+        if (!String.isBlank(city))   line2.add(city);
+        if (!String.isBlank(state))  line2.add(state);
+        if (!String.isBlank(postal)) line2.add(postal);
+
+        List<String> parts = new List<String>();
+        if (!line1.isEmpty()) parts.add(String.join(line1, ', '));
+        if (!line2.isEmpty()) parts.add(String.join(line2, ' '));
+        if (!String.isBlank(country)) parts.add(country);
+
+        return String.join(parts, '\n');
+    }
+
+    // Small helper class used by parseFormattedAddress
+    private class AddressParts {
+        String street;
+        String city;
+        String state;
+        String postal;
+    }
+
+    /**
+     * Parses the formatted address created by formatAddress().
+     */
+    private static AddressParts parseFormattedAddress(String formatted) {
+        AddressParts ap = new AddressParts();
+        if (String.isBlank(formatted)) return ap;
+
+        List<String> lines = formatted.split('\\n');
+
+        if (!lines.isEmpty()) {
+            String l1 = lines[0];
+            ap.street = (l1 != null) ? l1.trim() : null;
+        }
+
+        if (lines.size() >= 2) {
+            String line2Raw = lines[1];
+            String line2 = (line2Raw != null) ? line2Raw.trim() : '';
+
+            Pattern p = Pattern.compile('^\\s*([^,]+?)(?:,)?\\s+([A-Za-z]{2,})\\s+(\\S+)\\s*$');
+            Matcher m = p.matcher(line2);
+            if (m.matches()) {
+                String g1 = m.group(1);
+                String g2 = m.group(2);
+                String g3 = m.group(3);
+                ap.city   = (g1 != null) ? g1.trim() : null;
+                ap.state  = (g2 != null) ? g2.trim() : null;
+                ap.postal = (g3 != null) ? g3.trim() : null;
+            } else {
+                List<String> tokens = (line2 == null) ? new List<String>() : line2.split('\\s+');
+                if (tokens.size() >= 3) {
+                    ap.state  = tokens[tokens.size()-2];
+                    ap.postal = tokens[tokens.size()-1];
+                    List<String> cityParts = new List<String>();
+                    for (Integer i = 0; i < tokens.size()-2; i++) cityParts.add(tokens[i]);
+                    ap.city = String.join(cityParts, ' ');
+                } else if (line2 != null && line2.contains(',')) {
+                    List<String> parts = line2.split(',', 2);
+                    ap.city = (parts.size() > 0 && parts[0] != null) ? parts[0].trim() : null;
+
+                    String right = (parts.size() > 1) ? parts[1] : null;
+                    List<String> rightTokens = (right == null) ? new List<String>() : right.trim().split('\\s+');
+                    if (rightTokens.size() >= 2) {
+                        ap.state  = rightTokens[0];
+                        ap.postal = rightTokens[1];
+                    }
+                } else {
+                    ap.city = line2;
+                }
+            }
+        }
+        return ap;
+    }
+
+    /*@AuraEnabled
+    public static void setCaseAddress(Id caseId, String address) {
+        if (caseId == null) throw new AuraHandledException('Missing caseId.');
+        Schema.DescribeSObjectResult d = Case.SObjectType.getDescribe();
+        if (!d.isAccessible()) throw new AuraHandledException('No access to Case.');
+
+        Map<String, Schema.SObjectField> fmap = d.fields.getMap();
+
+        final String STREET_API  = 'trm_Address_Street__c';
+        final String CITY_API    = 'trm_Address_City__c';
+        final String STATE_API   = 'trm_Address_State__c';
+        final String POSTAL_API  = 'trm_Address_PostalCode__c';
+
+        for (String api : new List<String>{STREET_API, CITY_API, STATE_API, POSTAL_API}) {
+            if (!fmap.containsKey(api)) {
+                throw new AuraHandledException('Field ' + api + ' not found on Case.');
+            }
+            if (!fmap.get(api).getDescribe().isUpdateable()) {
+                throw new AuraHandledException('No FLS to update ' + api + '.');
+            }
+        }
+
+        if (String.isBlank(address)) {
+            Case clearC = new Case(
+                Id = caseId,
+                trm_Address_Street__c     = null,
+                trm_Address_City__c       = null,
+                trm_Address_State__c      = null,
+                trm_Address_PostalCode__c = null
+            );
+            update clearC;
+            return;
+        }
+
+        AddressParts parts = parseFormattedAddress(address);
+
+        Case c = new Case(Id = caseId);
+        c.put(STREET_API, parts.street);
+        c.put(CITY_API,   parts.city);
+        c.put(STATE_API,  parts.state);
+        c.put(POSTAL_API, parts.postal);
+        update c;
+    }*/
+    
+    @AuraEnabled
+    public static void setCaseAddress(Id caseId, String address) {
+        if (caseId == null) {
+            throw new AuraHandledException('Missing caseId.');
+        }
+
+        // Object-level security
+        Schema.DescribeSObjectResult d = Case.SObjectType.getDescribe();
+        if (!d.isAccessible()) {
+            throw new AuraHandledException('No access to Case.');
+        }
+
+        Map<String, Schema.SObjectField> fmap = d.fields.getMap();
+
+        // Compound Address subfields for trm_Document_Address__c
+        final String STREET_API     = 'trm_Document_Address__Street__s';
+        final String CITY_API       = 'trm_Document_Address__City__s';
+        final String STATECODE_API  = 'trm_Document_Address__StateCode__s';
+        final String POSTAL_API     = 'trm_Document_Address__PostalCode__s';
+        final String COUNTRY_API    = 'trm_Document_Address__CountryCode__s';
+
+        // Ensure compound address subfields exist and are updateable
+        for (String api : new List<String>{
+            STREET_API,
+            CITY_API,
+            STATECODE_API,
+            POSTAL_API,
+            COUNTRY_API
+        }) {
+            if (!fmap.containsKey(api)) {
+                throw new AuraHandledException('Field ' + api + ' not found on Case.');
+            }
+            if (!fmap.get(api).getDescribe().isUpdateable()) {
+                throw new AuraHandledException('No FLS to update ' + api + '.');
+            }
+        }
+
+        // If the incoming address is blank, clear the compound address and return
+        if (String.isBlank(address)) {
+            Case clearC = new Case(Id = caseId);
+            clearC.put(STREET_API,    null);
+            clearC.put(CITY_API,      null);
+            clearC.put(STATECODE_API, null);
+            clearC.put(POSTAL_API,    null);
+            clearC.put(COUNTRY_API,   null);
+            update clearC;
+            return;
+        }
+
+        // Parse the formatted multi-line address created by formatAddress():
+        // Line 1: street
+        // Line 2: city + state + postal
+        // Line 3: country (ignored by parseFormattedAddress)
+        AddressParts parts = parseFormattedAddress(address);
+
+        // --- Resolve state input into a valid StateCode value ---
+        String resolvedStateCode = null;
+        if (!String.isBlank(parts.state)) {
+            String raw = parts.state.trim();
+
+            // Build a map of valid StateCode -> Label from org picklist
+            Map<String, String> validStates = new Map<String, String>();
+            Schema.DescribeFieldResult stateDf = Account.BillingStateCode.getDescribe();
+            for (Schema.PicklistEntry pe : stateDf.getPicklistValues()) {
+                if (pe.isActive()) {
+                    validStates.put(pe.getValue(), pe.getLabel());
+                }
+            }
+
+            // 1) Direct match by code (e.g., "FL")
+            String rawUpper = raw.toUpperCase();
+            if (validStates.containsKey(rawUpper)) {
+                resolvedStateCode = rawUpper;
+            } else {
+                // 2) Match by label (e.g., "Florida" -> "FL")
+                for (String code : validStates.keySet()) {
+                    String label = validStates.get(code);
+                    if (label != null && label.equalsIgnoreCase(raw)) {
+                        resolvedStateCode = code;
+                        break;
+                    }
+                }
+            }
+        }
+
+        Case c = new Case(Id = caseId);
+        c.put(STREET_API, parts.street);
+        c.put(CITY_API,   parts.city);
+        c.put(POSTAL_API, parts.postal);
+
+        // For now we assume US; adjust if you need multi-country support
+        c.put(COUNTRY_API, 'US');
+
+        // Only set StateCode if we resolved a valid entry
+        if (resolvedStateCode != null) {
+            c.put(STATECODE_API, resolvedStateCode);
+        } else {
+            // Clear or leave null to avoid invalid picklist error
+            c.put(STATECODE_API, null);
+        }
+
+        update c;
+    }
+
+
+    @AuraEnabled(cacheable=true)
+    public static List<OptionDTO> searchCodes(String term) {
+        List<OptionDTO> out = new List<OptionDTO>();
+
+        // Normalize incoming term
+        String q = String.isBlank(term) ? '' : term.trim();
+        if (q == '') return out;
+
+        // Security
+        Schema.DescribeSObjectResult d = Code__c.SObjectType.getDescribe();
+        if (!d.isAccessible()) {
+            throw new AuraHandledException('No access to Code__c.');
+        }
+
+        // We CANNOT filter by Description__c in SOQL (Long Text Area),
+        // so we query a reasonable slice and filter in-memory.
+        List<Code__c> rows = [
+            SELECT Id, Name, Code__c, Description__c
+            FROM Code__c
+            LIMIT 1000
+        ];
+
+        String qLower = q.toLowerCase();
+
+        // First pass: real matches (by description, code or name)
+        for (Code__c r : rows) {
+            String descLower = r.Description__c != null ? r.Description__c.toLowerCase() : '';
+            String codeLower = r.Code__c != null ? r.Code__c.toLowerCase() : '';
+            String nameLower = r.Name != null ? r.Name.toLowerCase() : '';
+
+            // Match if description OR code OR name contains the typed term
+            Boolean matches =
+                descLower.contains(qLower) ||
+                codeLower.contains(qLower) ||
+                nameLower.contains(qLower);
+
+            if (!matches) {
+                continue;
+            }
+
+            String label = '';
+
+            // Show code first (if present)
+            if (!String.isBlank(r.Code__c)) {
+                label += r.Code__c;
+            }
+
+            // Then name
+            if (!String.isBlank(r.Name)) {
+                label += (label == '' ? '' : ' - ') + r.Name;
+            }
+
+            // And description
+            if (!String.isBlank(r.Description__c)) {
+                label += ' — ' + r.Description__c;
+            }
+
+            out.add(new OptionDTO(label, String.valueOf(r.Id)));
+
+            // Do not return more than 50 options to the client
+            if (out.size() >= 50) {
+                return out;
+            }
+        }
+
+        // If we got matches, return them
+        if (!out.isEmpty()) {
+            return out;
+        }
+
+        // 🔁 Fallback: no matches -> return a generic list (first 50 rows)
+        for (Code__c r : rows) {
+            String label = '';
+
+            if (!String.isBlank(r.Code__c)) {
+                label += r.Code__c;
+            }
+
+            if (!String.isBlank(r.Name)) {
+                label += (label == '' ? '' : ' - ') + r.Name;
+            }
+
+            if (!String.isBlank(r.Description__c)) {
+                label += ' — ' + r.Description__c;
+            }
+
+            out.add(new OptionDTO(label, String.valueOf(r.Id)));
+
+            if (out.size() >= 50) {
+                break;
+            }
+        }
+
+        return out;
+    }
+
+
+
+    // DTO to expose Diagnosis_Code__c + its ICD-9 / ICD-10 codes to LWC
+    public class DiagnosisContextDTO {
+        @AuraEnabled public Id diagnosisRecordId;
+
+        @AuraEnabled public Id icd9Id;
+        @AuraEnabled public String icd9Label;
+
+        @AuraEnabled public Id icd10Id;
+        @AuraEnabled public String icd10Label;
+    }
+
+
+
+    @AuraEnabled(cacheable=true)
+    public static List<OptionDTO> searchCodesForDiagnosis(String term, String codeType) {
+        List<OptionDTO> out = new List<OptionDTO>();
+
+        // Security
+        Schema.DescribeSObjectResult d = Code__c.SObjectType.getDescribe();
+        if (!d.isAccessible()) {
+            throw new AuraHandledException('No access to Code__c.');
+        }
+
+        // Normalize search text
+        String q = String.isBlank(term) ? null : term.trim().toLowerCase();
+
+        // Base query: only diagnosis codes, optionally filtered by Type__c
+        // IMPORTANT: we do NOT filter by Description__c in SOQL (not filterable).
+        String soql =
+            'SELECT Id, Name, Code__c, Description__c, Type__c, Diagnosis_Codes__c ' +
+            'FROM Code__c ' +
+            'WHERE Diagnosis_Codes__c = TRUE';
+
+        if (!String.isBlank(codeType)) {
+            soql += ' AND Type__c = :codeType';
+        }
+
+        soql += ' ORDER BY Name LIMIT 200';
+
+        List<Code__c> baseRows;
+        if (String.isBlank(codeType)) {
+            baseRows = Database.query(
+                'SELECT Id, Name, Code__c, Description__c, Type__c, Diagnosis_Codes__c ' +
+                'FROM Code__c ' +
+                'WHERE Diagnosis_Codes__c = TRUE ' +
+                'ORDER BY Name LIMIT 200'
+            );
+        } else {
+            baseRows = [
+                SELECT Id, Name, Code__c, Description__c, Type__c, Diagnosis_Codes__c
+                FROM Code__c
+                WHERE Diagnosis_Codes__c = TRUE
+                AND Type__c = :codeType
+                ORDER BY Name
+                LIMIT 200
+            ];
+        }
+
+        // If user typed something -> filter in memory using Name, Code__c, Description__c
+        List<Code__c> pool = baseRows;
+        if (q != null && q != '') {
+            List<Code__c> filtered = new List<Code__c>();
+            for (Code__c r : baseRows) {
+                Boolean match = false;
+
+                if (!match && r.Name != null &&
+                    r.Name.toLowerCase().contains(q)) {
+                    match = true;
+                }
+                if (!match && r.Code__c != null &&
+                    r.Code__c.toLowerCase().contains(q)) {
+                    match = true;
+                }
+                if (!match && r.Description__c != null &&
+                    r.Description__c.toLowerCase().contains(q)) {
+                    match = true;
+                }
+
+                if (match) {
+                    filtered.add(r);
+                }
+            }
+
+            // If there are matches, use them; otherwise, fall back to the base list
+            if (!filtered.isEmpty()) {
+                pool = filtered;
+            }
+        }
+
+        // Map to OptionDTO
+        for (Code__c r : pool) {
+            String label = '';
+
+            if (r.Code__c != null) {
+                label += r.Code__c + ' — ';
+            }
+            label += r.Name;
+
+            if (r.Description__c != null) {
+                label += ' — ' + r.Description__c;
+            }
+
+            out.add(new OptionDTO(label, String.valueOf(r.Id)));
+        }
+
+        return out;
+    }
+
+@AuraEnabled
+public static void updateCaseDiagnosisCodes(Id caseId, Id codeId) {
+    // Basic validation
+    if (caseId == null) {
+        throw new AuraHandledException('Missing caseId.');
+    }
+
+    // Security check: Case
+    Schema.DescribeSObjectResult cd = Case.SObjectType.getDescribe();
+    if (!cd.isAccessible()) {
+        throw new AuraHandledException('No access to Case.');
+    }
+
+    // Read Case to obtain the linked Diagnosis_Code__c
+    Case c = [
+        SELECT Id, trm_Diagnosis_Code__c
+        FROM Case
+        WHERE Id = :caseId
+        LIMIT 1
+    ];
+
+    if (c.trm_Diagnosis_Code__c == null) {
+        throw new AuraHandledException('Case does not have a Diagnosis Code record (trm_Diagnosis_Code__c).');
+    }
+
+    // Security check: Diagnosis_Code__c
+    Schema.DescribeSObjectResult dDiag = Diagnosis_Code__c.SObjectType.getDescribe();
+    if (!dDiag.isAccessible()) {
+        throw new AuraHandledException('No access to Diagnosis_Code__c.');
+    }
+
+    Map<String, Schema.SObjectField> diagFields = dDiag.fields.getMap();
+    final String ICD9_API  = 'ICD9__c';
+    final String ICD10_API = 'ICD10__c';
+
+    for (String api : new List<String>{ ICD9_API, ICD10_API }) {
+        if (!diagFields.containsKey(api)) {
+            throw new AuraHandledException('Field ' + api + ' not found on Diagnosis_Code__c.');
+        }
+        if (!diagFields.get(api).getDescribe().isUpdateable()) {
+            throw new AuraHandledException('No FLS to update ' + api + '.');
+        }
+    }
+
+    // If codeId is null, you can choose behavior:
+    // here we clear BOTH ICD-9 and ICD-10
+    if (codeId == null) {
+        Diagnosis_Code__c clearDiag = new Diagnosis_Code__c(
+            Id     = c.trm_Diagnosis_Code__c,
+            ICD9__c  = null,
+            ICD10__c = null
+        );
+        update clearDiag;
+        return;
+    }
+
+    // Security check: Code__c
+    Schema.DescribeSObjectResult dCode = Code__c.SObjectType.getDescribe();
+    if (!dCode.isAccessible()) {
+        throw new AuraHandledException('No access to Code__c.');
+    }
+
+    // Load the selected Code__c to inspect Type__c and Diagnosis_Codes__c
+    Code__c codeRec = [
+        SELECT Id, Type__c, Diagnosis_Codes__c
+        FROM Code__c
+        WHERE Id = :codeId
+        LIMIT 1
+    ];
+
+    if (!codeRec.Diagnosis_Codes__c) {
+        throw new AuraHandledException('Selected Code is not marked as a Diagnosis Code.');
+    }
+
+    Diagnosis_Code__c diagToUpdate = new Diagnosis_Code__c(
+        Id = c.trm_Diagnosis_Code__c
+    );
+
+    // Decide which field to update based on Type__c
+    if (codeRec.Type__c == 'ICD 9') {
+        diagToUpdate.ICD9__c = codeId;
+    } else if (codeRec.Type__c == 'ICD 10') {
+        diagToUpdate.ICD10__c = codeId;
+    } else {
+        throw new AuraHandledException('Selected Code is not of type ICD 9 or ICD 10.');
+    }
+
+    update diagToUpdate;
+}
+
+@AuraEnabled(cacheable=true)
+public static Map<String, Object> fetchDiagnosisContextForCase(Id caseId) {
+    // Default response
+    Map<String, Object> out = new Map<String, Object>{
+        'hasDiagnosis' => false,
+        'diagnosisId'  => null,
+        'icd9Id'       => null,
+        'icd9Label'    => null,
+        'icd10Id'      => null,
+        'icd10Label'   => null
+    };
+
+    if (caseId == null) {
+        return out;
+    }
+
+    // Check Case access
+    Schema.DescribeSObjectResult cd = Case.SObjectType.getDescribe();
+    if (!cd.isAccessible()) {
+        return out;
+    }
+
+    // Read Case + Diagnosis_Code__c + Code__c for ICD-9 / ICD-10
+    Case c = [
+        SELECT Id,
+               trm_Diagnosis_Code__c,
+               trm_Diagnosis_Code__r.ICD9__c,
+               trm_Diagnosis_Code__r.ICD9__r.Id,
+               trm_Diagnosis_Code__r.ICD9__r.Code__c,
+               trm_Diagnosis_Code__r.ICD9__r.Name,
+               trm_Diagnosis_Code__r.ICD9__r.Description__c,
+               trm_Diagnosis_Code__r.ICD10__c,
+               trm_Diagnosis_Code__r.ICD10__r.Id,
+               trm_Diagnosis_Code__r.ICD10__r.Code__c,
+               trm_Diagnosis_Code__r.ICD10__r.Name,
+               trm_Diagnosis_Code__r.ICD10__r.Description__c
+        FROM Case
+        WHERE Id = :caseId
+        LIMIT 1
+    ];
+
+    if (c.trm_Diagnosis_Code__c == null) {
+        return out;
+    }
+
+    out.put('hasDiagnosis', true);
+    out.put('diagnosisId', c.trm_Diagnosis_Code__c);
+
+    // Helper for label formatting (same “Code — Name — Description” style)
+    // ICD-9
+    if (c.trm_Diagnosis_Code__r.ICD9__c != null &&
+        c.trm_Diagnosis_Code__r.ICD9__r != null) {
+
+        Code__c icd9 = c.trm_Diagnosis_Code__r.ICD9__r;
+
+        String lbl9 = '';
+        if (icd9.Code__c != null) {
+            lbl9 += icd9.Code__c + ' — ';
+        }
+        lbl9 += icd9.Name;
+        if (icd9.Description__c != null) {
+            lbl9 += ' — ' + icd9.Description__c;
+        }
+
+        out.put('icd9Id', icd9.Id);
+        out.put('icd9Label', lbl9);
+    }
+
+    // ICD-10
+    if (c.trm_Diagnosis_Code__r.ICD10__c != null &&
+        c.trm_Diagnosis_Code__r.ICD10__r != null) {
+
+        Code__c icd10 = c.trm_Diagnosis_Code__r.ICD10__r;
+
+        String lbl10 = '';
+        if (icd10.Code__c != null) {
+            lbl10 += icd10.Code__c + ' — ';
+        }
+        lbl10 += icd10.Name;
+        if (icd10.Description__c != null) {
+            lbl10 += ' — ' + icd10.Description__c;
+        }
+
+        out.put('icd10Id', icd10.Id);
+        out.put('icd10Label', lbl10);
+    }
+
+    return out;
+}
+
+@AuraEnabled(cacheable=true)
+public static List<OptionDTO> searchCodesByType(String term, String codeType) {
+    List<OptionDTO> out = new List<OptionDTO>();
+
+    // Normalize input
+    String q = String.isBlank(term) ? null : term.trim().toLowerCase();
+    String type = String.isBlank(codeType) ? null : codeType.trim();
+
+    // Security
+    Schema.DescribeSObjectResult d = Code__c.SObjectType.getDescribe();
+    if (!d.isAccessible()) {
+        throw new AuraHandledException('No access to Code__c.');
+    }
+
+    // Build base SOQL (only filterable fields)
+    String soql = 
+        'SELECT Id, Name, Code__c, Description__c, Type__c, Diagnosis_Codes__c ' +
+        'FROM Code__c ' +
+        'WHERE Diagnosis_Codes__c = TRUE';
+
+    if (type != null) {
+        soql += ' AND Type__c = :type';
+    }
+
+    soql += ' ORDER BY Name LIMIT 200';
+
+    List<Code__c> baseRows = (List<Code__c>)Database.query(soql);
+
+    List<Code__c> pool = baseRows;
+
+    // In-memory filter by Name / Code__c / Description__c
+    if (q != null && q != '') {
+        List<Code__c> filtered = new List<Code__c>();
+        for (Code__c r : baseRows) {
+            Boolean match = false;
+
+            if (!match && r.Name != null &&
+                r.Name.toLowerCase().contains(q)) {
+                match = true;
+            }
+            if (!match && r.Code__c != null &&
+                r.Code__c.toLowerCase().contains(q)) {
+                match = true;
+            }
+            if (!match && r.Description__c != null &&
+                r.Description__c.toLowerCase().contains(q)) {
+                match = true;
+            }
+
+            if (match) {
+                filtered.add(r);
+            }
+        }
+        if (!filtered.isEmpty()) {
+            pool = filtered;
+        }
+    }
+
+    // Map to OptionDTO
+    for (Code__c r : pool) {
+        String label = '';
+        if (r.Code__c != null) {
+            label += r.Code__c + ' — ';
+        }
+        label += r.Name;
+        if (r.Description__c != null) {
+            label += ' — ' + r.Description__c;
+        }
+        out.add(new OptionDTO(label, String.valueOf(r.Id)));
+    }
+
+    return out;
+}
+
+@AuraEnabled(cacheable=true)
+public static List<CodeOptionDTO> searchIcdCodes(String term, String icdType) {
+    // Normalizamos parámetros
+    String q = String.isBlank(term) ? '' : term.trim();
+    String typeFilter = String.isBlank(icdType) ? 'ICD 9' : icdType.trim();
+
+    // IMPORTANTE: aquí usamos exactamente los valores del picklist
+    // Type__c = 'ICD 9' o 'ICD 10'
+
+    String likeTerm = '%' + String.escapeSingleQuotes(q) + '%';
+
+    // 1) Intento con filtro por texto
+    List<Code__c> rows = [
+        SELECT Id, Code__c, Name, Type__c
+        FROM Code__c
+        WHERE Diagnosis_Codes__c = true
+          AND Type__c = :typeFilter
+          AND (Code__c LIKE :likeTerm OR Name LIKE :likeTerm)
+        ORDER BY Code__c
+        LIMIT 50
+    ];
+
+    // 2) Si no hay matches, devolvemos una lista por defecto del mismo tipo
+    if (rows.isEmpty()) {
+        rows = [
+            SELECT Id, Code__c, Name, Type__c
+            FROM Code__c
+            WHERE Diagnosis_Codes__c = true
+              AND Type__c = :typeFilter
+            ORDER BY Code__c
+            LIMIT 50
+        ];
+    }
+
+    // 3) Mapear a DTO para el LWC
+    List<CodeOptionDTO> out = new List<CodeOptionDTO>();
+    for (Code__c c : rows) {
+        CodeOptionDTO dto = new CodeOptionDTO();
+        dto.value = c.Id;
+        dto.label =
+            (c.Code__c != null ? c.Code__c : '') +
+            (c.Name != null ? ' - ' + c.Name : '');
+        out.add(dto);
+    }
+    return out;
+}
+
+
+
+// DTO simple para opciones de combobox
+public class CodeOptionDTO {
+    @AuraEnabled public Id value;
+    @AuraEnabled public String label;
+}
+
+@AuraEnabled
+public static void updateDiagnosisCodes(Id caseId, Id icd9Id, Id icd10Id) {
+    if (caseId == null) {
+        throw new AuraHandledException('Missing caseId.');
+    }
+
+    // 1) Traer el Case y Diagnosis_Code__c (similar a lo que ya tienes)
+    Case c = [
+        SELECT Id, CaseNumber, trm_Diagnosis_Code__c
+        FROM Case
+        WHERE Id = :caseId
+        LIMIT 1
+    ];
+
+    Diagnosis_Code__c diag;
+
+    if (c.trm_Diagnosis_Code__c != null) {
+        diag = [
+            SELECT Id, ICD9__c, ICD10__c, Allocation__c
+            FROM Diagnosis_Code__c
+            WHERE Id = :c.trm_Diagnosis_Code__c
+            LIMIT 1
+        ];
+        diag.ICD9__c  = icd9Id;
+        diag.ICD10__c = icd10Id;
+        update diag;
+    } else {
+        diag = new Diagnosis_Code__c(
+            Allocation__c = c.Id,
+            ICD9__c       = icd9Id,
+            ICD10__c      = icd10Id,
+            Name          = 'Diagnosis - ' + c.CaseNumber
+        );
+        insert diag;
+
+        c.trm_Diagnosis_Code__c = diag.Id;
+        update c;
+    }
+
+    // 2) Volver a leer el Diagnosis_Code__c con los Code__c reales
+    Diagnosis_Code__c diagWithCodes = [
+        SELECT Id,
+               Allocation__c,
+               ICD9__r.Code__c,
+               ICD10__r.Code__c
+        FROM Diagnosis_Code__c
+        WHERE Id = :diag.Id
+        LIMIT 1
+    ];
+
+    // 3) Armar el texto ANSI109; 1001F (solo códigos no nulos)
+    List<String> codes = new List<String>();
+    if (diagWithCodes.ICD9__r != null && !String.isBlank(diagWithCodes.ICD9__r.Code__c)) {
+        codes.add(diagWithCodes.ICD9__r.Code__c);
+    }
+    if (diagWithCodes.ICD10__r != null && !String.isBlank(diagWithCodes.ICD10__r.Code__c)) {
+        codes.add(diagWithCodes.ICD10__r.Code__c);
+    }
+
+    String allCodes = String.join(codes, '; ');
+
+    // 4) Guardar el texto final en el Case
+    Case caseToUpdate = new Case(
+        Id = diagWithCodes.Allocation__c,
+        trm_All_Diagnosis_Codes__c = allCodes
+    );
+    update caseToUpdate;
+}
+
 
 
 }

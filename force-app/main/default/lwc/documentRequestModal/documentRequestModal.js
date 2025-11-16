@@ -17,6 +17,23 @@ import updateAgentFields from '@salesforce/apex/DocumentRequestController.update
 import mergeAndReturnFile from '@salesforce/apex/DocumentRequestController.mergeAndReturnFile';
 import fetchClaims from '@salesforce/apex/DocumentRequestController.fetchClaims';
 import updateSelectedClaims from '@salesforce/apex/DocumentRequestController.updateSelectedClaims';
+import fetchPayeeAddresses from '@salesforce/apex/DocumentRequestController.fetchPayeeAddresses';
+import setCaseAddress from '@salesforce/apex/DocumentRequestController.setCaseAddress';
+import searchCodes from '@salesforce/apex/DocumentRequestController.searchCodes';
+import updateCaseDiagnosisCodes from '@salesforce/apex/DocumentRequestController.updateCaseDiagnosisCodes';
+import fetchDiagnosisContextForCase
+  from '@salesforce/apex/DocumentRequestController.fetchDiagnosisContextForCase';
+import searchCodesByType
+  from '@salesforce/apex/DocumentRequestController.searchCodesByType';
+  import searchIcdCodes from '@salesforce/apex/DocumentRequestController.searchIcdCodes';
+  import updateDiagnosisCodes from '@salesforce/apex/DocumentRequestController.updateDiagnosisCodes';
+
+
+
+
+
+
+
 
 
 
@@ -199,8 +216,21 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
           baseLines: [],
           options: [],
           inputs: [], // claims are handled by a dedicated section, not generic inputs
-        }
-
+        },
+        {
+        match: "cover letter - cms submission - submitter letter",
+        baseLines: [],
+        options: [],
+        inputs: [
+            {
+            key: "addressToUse",
+            label: "Select Entity Address",
+            type: "picklist",
+            required: true,
+            values: [],
+            }
+        ],
+        },
     ];
 
     // JavaScript DOC_RULES helper methods
@@ -290,6 +320,116 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
       return this.claimRecords && this.claimRecords.length > 0;
     }
     /* END CLIMS */
+
+    // Dynamic inputs support (Submitter Letter: address + diagnosis lookup)
+    @track currentInputs = [];  // Configuration for advanced inputs based on DOC_RULES
+    @track valuesByKey = {};    // Stores user-entered values by input key
+    @track codeOptions = [];    // Dynamic options for diagnosis code lookup (search results)
+    _codeSearchDebounce;        // Debounce handler for diagnosis code search
+
+    @track diagnosisContext;   // { hasDiagnosis, icd9Label, icd10Label, ... }
+
+
+    // ICD-9 UI state
+    @track icd9SearchText = '';
+    @track icd9Options = [];
+    _icd9Debounce;
+
+    // ICD-10 UI state
+    @track icd10SearchText = '';
+    @track icd10Options = [];
+    _icd10Debounce;
+
+
+
+    get hasIcd9Options() {
+    return Array.isArray(this.icd9Options) && this.icd9Options.length > 0;
+    }
+    get icd9ComboboxClass() {
+        return this.hasIcd9Options ? 'slds-combobox slds-dropdown-trigger slds-dropdown-trigger_click slds-is-open'
+                                : 'slds-combobox slds-dropdown-trigger slds-dropdown-trigger_click';
+    }
+
+    get hasIcd10Options() {
+        return Array.isArray(this.icd10Options) && this.icd10Options.length > 0;
+    }
+    get icd10ComboboxClass() {
+        return this.hasIcd10Options ? 'slds-combobox slds-dropdown-trigger slds-dropdown-trigger_click slds-is-open'
+                                    : 'slds-combobox slds-dropdown-trigger slds-dropdown-trigger_click';
+    }
+
+
+    // True when there are advanced inputs to render for the current rule
+    get hasDynamicInputs() {
+        return Array.isArray(this.currentInputs) && this.currentInputs.length > 0;
+    }
+
+    get inputsWithValues() {
+        const src = this.currentInputs || [];
+        const map = this.valuesByKey || {};
+
+        return src.map((inp) => {
+            const base = {
+                ...inp,
+                // Current value for this logical key (addressToUse, diagnosisCodeId, etc.)
+                value: map[inp.key] ?? null,
+
+                // For non-picklist inputs this will be used by <lightning-input>
+                _renderType: inp.type,
+
+                // Flags to drive template rendering
+                _isPicklist: inp.type === "picklist",
+                _isCombo: inp.type === "picklist", // 👈 IMPORTANT: enables <lightning-combobox> branch
+                _isLookup: inp.type === "lookup",
+
+                _options: null,
+                _placeholder: null,
+            };
+
+            if (inp.type === "picklist") {
+                // Options for <lightning-combobox>
+                base._options = Array.isArray(inp.values) ? inp.values : [];
+            }
+
+            if (inp.type === "lookup") {
+                // Lookup uses a search input and a dropdown
+                base._placeholder = "Type to search diagnosis...";
+                base.displayValue = map.diagnosisSearch || "";
+            }
+
+            return base;
+        });
+    }
+
+
+    get hasCodeOptions() {
+        return Array.isArray(this.codeOptions) && this.codeOptions.length > 0;
+    }
+
+    get lookupComboboxClass() {
+        // Open dropdown when there are search results
+        return `slds-combobox slds-dropdown-trigger slds-dropdown-trigger_click ${
+            this.hasCodeOptions ? "slds-is-open" : ""
+        }`;
+    }
+
+    get isLookupMissing() {
+        // Used for basic validation feedback if needed in template (optional)
+        return (
+            this.currentInputs.some(
+                (i) => i.key === "diagnosisCodeId" && i.required
+            ) && !this.valuesByKey?.diagnosisCodeId
+        );
+    }
+
+    // Helper to know when this is the Submitter Letter template
+    get isSubmitterLetterDoc() {
+        return (
+            this.currentRule?.match ===
+            "cover letter - cms submission - submitter letter"
+        );
+    }
+
     
     get showRichText() {
         // Show rich text ONLY when:
@@ -460,6 +600,14 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
             this.detailsTextHtml = this.generateTemplateContent(rule, []).replace(/\n/g, '<br>');
             this.detailsOptions = rule.options || [];
             this.currentRule = rule; // Store for generation
+
+            // Initialize dynamic inputs from DOC_RULES definition (if any)
+            // NOTE: We clone the array to avoid accidentally mutating the static DOC_RULES config
+            this.currentInputs = Array.isArray(rule.inputs)
+                ? rule.inputs.map(i => ({ ...i }))
+                : [];
+            this.valuesByKey = {};
+            this.codeOptions = [];
             
             // --- Carrier Letter: load Supporting_Claims__c related to this record ---
             if (
@@ -523,6 +671,57 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
               }
             }
 
+            // --- Submitter Letter: load Payee addresses into "addressToUse" picklist ---
+            if (this.isCase && rule.match === "cover letter - cms submission - submitter letter") {
+                try {
+                    // Fetch Billing / Mailing / Main addresses from Payee_Name__c via Apex
+                    const opts = await fetchPayeeAddresses({ caseId: this.recordId });
+
+                    const addressOptions = (opts || []).map(o => ({
+                        label: o.label,
+                        value: o.value
+                    }));
+
+                    // Inject options into the "addressToUse" input from DOC_RULES
+                    const idx = this.currentInputs.findIndex(i => i.key === "addressToUse");
+                    if (idx >= 0) {
+                        this.currentInputs[idx] = {
+                            ...this.currentInputs[idx],
+                            type: 'picklist',
+                            values: addressOptions,
+                            required: true
+                        };
+                    }
+
+                    this.diagnosisContext = await fetchDiagnosisContextForCase({
+                        caseId: this.recordId
+                    });
+
+                    // Pre-fill search text with current labels (if any)
+                    if (this.diagnosisContext?.icd9Label) {
+                        this.icd9SearchText = this.diagnosisContext.icd9Label;
+                        this.currentIcd9Id = this.diagnosisContext.icd9Id;
+                        this.originalIcd9Id = this.diagnosisContext.icd9Id;
+                    }
+                    if (this.diagnosisContext?.icd10Label) {
+                        this.icd10SearchText = this.diagnosisContext.icd10Label;
+                        this.currentIcd10Id = this.diagnosisContext.icd10Id;
+                        this.originalIcd10Id = this.diagnosisContext.icd10Id;
+                    }
+
+
+                } catch (err) {
+                    // Do not break the flow if address loading fails; just log and clear options
+                    console.warn('Failed to fetch Payee addresses for Submitter Letter or Diagnosis Context', err);
+                    const idx = this.currentInputs.findIndex(i => i.key === "addressToUse");
+                    if (idx >= 0) {
+                        this.currentInputs[idx] = {
+                            ...this.currentInputs[idx],
+                            values: []
+                        };
+                    }
+                }
+            }
 
 
             console.log('Advanced document detected:', this.selectedTemplateName);
@@ -576,7 +775,12 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
         this.isAdvancedDocument = false;
         this.detailsTextHtml = '';
         this.detailsOptions = [];
+        // Reset advanced input system
+        this.currentInputs = [];
+        this.valuesByKey = {};
+        this.codeOptions = [];
     };
+
 
     // -------- Navigation Methods - Clickable Stepper ----------
     goToStep1 = () => {
@@ -817,7 +1021,48 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
                   }
                 }
 
-               
+                // --- Submitter Letter: validate and persist address before merging ---
+                if (this.isSubmitterLetterDoc && this.isCase) {
+                    const addr = this.valuesByKey?.addressToUse || null;
+
+                    if (!addr) {
+                        this.showToast(
+                            'Missing information',
+                            'Please select an Address before generating this document.',
+                            'warning'
+                        );
+                        this.loading = false;
+                        return;
+                    }
+
+                    try {
+                        // 1) Guardar la dirección en el Case
+                        await setCaseAddress({
+                            caseId: this.recordId,
+                            address: addr
+                        });
+
+                        // 2) SIEMPRE actualizar ICD-9 / ICD-10 + trm_All_Diagnosis_Codes__c
+                        await updateDiagnosisCodes({
+                            caseId: this.recordId,
+                            icd9Id: this.currentIcd9Id || null,
+                            icd10Id: this.currentIcd10Id || null
+                        });
+
+                    } catch (e) {
+                        console.warn('Failed to persist Submitter Letter address OR Diagnosis Codes', e);
+                        this.showToast(
+                            'Error',
+                            this.errMsg(e) || 'Failed to save the Address OR Diagnosis Codes on the Case.',
+                            'error'
+                        );
+                        this.loading = false;
+                        return;
+                    }
+                }
+
+
+
                 //docId = await mergeWithMapping(webmergePayload);
 
                 // === BEGIN  immediate download  ===
@@ -1114,6 +1359,175 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
 
       this.selectedClaimIds = next;
     };
+
+    // Generic handler for dynamic inputs (text, picklist, etc.)
+    handleDynamicInputChange = (event) => {
+        const key = event.target.dataset.key;
+        // For lightning-combobox use event.detail.value, for lightning-input use event.target.value
+        const val = (event.detail && event.detail.value !== undefined)
+            ? event.detail.value
+            : event.target.value;
+
+        // Store value by its logical key (addressToUse, diagnosisCodeId, etc.)
+        this.valuesByKey = { ...(this.valuesByKey || {}), [key]: val || null };
+    };
+
+        // Simple debounce utility for diagnosis code search
+    debounce(fn, wait) {
+        return (...args) => {
+            clearTimeout(this._codeSearchDebounce);
+            this._codeSearchDebounce = setTimeout(() => fn.apply(this, args), wait);
+        };
+    }
+
+        // Debounced search function for diagnosis codes
+    searchCodesDebounced = this.debounce(async (term) => {
+        try {
+            const opts = await searchCodes({ term });
+            // Map Apex DTOs to combobox-like options
+            this.codeOptions = (opts || []).map(o => ({
+                label: o.label,
+                value: o.value
+            }));
+            // Force re-render of inputsWithValues
+            this.currentInputs = [...this.currentInputs];
+        } catch (e) {
+            console.warn("Diagnosis search failed", e);
+            this.codeOptions = [];
+        }
+    }, 250);
+
+        // User is typing into the diagnosis search input
+    handleLookupTyping = (event) => {
+        const typed = (event.target.value || "").trim();
+
+        // Store the visible search text separately
+        this.valuesByKey = { ...this.valuesByKey, diagnosisSearch: typed };
+
+        if (typed.length >= 2) {
+            this.searchCodesDebounced(typed);
+        } else {
+            this.codeOptions = [];
+        }
+    };
+
+    // User clicks a diagnosis option from the dropdown
+    handleSelectCode = (event) => {
+        const id = event.currentTarget.dataset.id;
+        const label = event.currentTarget.dataset.label;
+
+        // Store the selected Diagnosis Code Id and its label
+        this.valuesByKey = {
+            ...this.valuesByKey,
+            diagnosisCodeId: id,
+            diagnosisSearch: label
+        };
+
+        // Close dropdown
+        this.codeOptions = [];
+    };
+
+    // Basic key handling on the search input (optional niceties)
+    handleLookupKeydown = (event) => {
+        if (event.key === "Escape") {
+            this.codeOptions = [];
+        }
+        if (event.key === "Enter" && this.codeOptions.length === 1) {
+            // Quick auto-select if only one result
+            const only = this.codeOptions[0];
+            this.valuesByKey = {
+                ...this.valuesByKey,
+                diagnosisCodeId: only.value,
+                diagnosisSearch: only.label
+            };
+            this.codeOptions = [];
+        }
+    };
+
+
+
+searchIcd9Debounced = this.debounce(async (term) => {
+    try {
+        const opts = await searchIcdCodes({
+            term,
+            icdType: 'ICD 9'
+        });
+
+        this.icd9Options = opts || [];
+        console.log('icd9Options',this.icd9Options);
+    } catch (e) {
+        console.warn('ICD 9 search failed', e);
+        this.icd9Options = [];
+    }
+}, 250);
+
+searchIcd10Debounced = this.debounce(async (term) => {
+    try {
+        const opts = await searchIcdCodes({
+            term,
+            icdType: 'ICD 10'
+        });
+
+        this.icd10Options = opts || [];
+        console.log('icd10Options',this.icd10Options);
+    } catch (e) {
+        console.warn('ICD 10 search failed', e);
+        this.icd10Options = [];
+    }
+}, 250);
+
+handleIcd9Typing = (event) => {
+    const typed = (event.target.value || '').trim();
+    this.icd9SearchText = typed;
+    console.log('icd9SearchText',this.icd9SearchText );
+
+    if (typed.length >= 2) {
+        this.searchIcd9Debounced(typed);
+    } else {
+        this.icd9Options = [];
+    }
+};
+
+handleIcd10Typing = (event) => {
+    const typed = (event.target.value || '').trim();
+    this.icd10SearchText = typed;
+    console.log('icd10SearchText',this.icd10SearchText);
+    if (typed.length >= 2) {
+        this.searchIcd10Debounced(typed);
+    } else {
+        this.icd10Options = [];
+    }
+
+};
+
+handleSelectIcd9 = (event) => {
+    const id = event.currentTarget.dataset.id;
+    const label = event.currentTarget.dataset.label;
+
+    // Update visible text in the input
+    this.icd9SearchText = label;
+    // Close dropdown
+    this.icd9Options = [];
+
+    // Just store the selected ICD-9 in memory
+    this.currentIcd9Id = id;
+
+    // Optional: pequeño mensaje, pero aclarando que se guarda al generar
+    this.showToast('Info', 'ICD-9 selected. It will be saved when you click Generate.', 'info');
+};
+
+handleSelectIcd10 = (event) => {
+    const id = event.currentTarget.dataset.id;
+    const label = event.currentTarget.dataset.label;
+
+    this.icd10SearchText = label;
+    this.icd10Options = [];
+
+    this.currentIcd10Id = id;
+
+    this.showToast('Info', 'ICD-10 selected. It will be saved when you click Generate.', 'info');
+};
+
 
 
 

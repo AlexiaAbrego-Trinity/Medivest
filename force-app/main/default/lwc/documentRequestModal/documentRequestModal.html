@@ -88,7 +88,7 @@
             </div>
         </template>
 
-        <!-- STEP 4: Details (genérico) -->
+        <!-- STEP 4: Details (generic) -->
         <template if:true={showStep4}>
             <div class="card">
                 <div class="detailsHeader">
@@ -105,61 +105,203 @@
                 <template if:true={isAdvancedDocument}>
 
                     <!-- Rich text ONLY when rule has baseLines -->
-                        <template if:true={showRichText}>
+                    <template if:true={showRichText}>
+                        <div class="fieldRow">
+                            <label for="richTextInput">Document Content</label>
+                            <lightning-input-rich-text
+                                id="richTextInput"
+                                value={detailsTextHtml}
+                                onchange={handleRichTextChange}
+                                formats="font,size,bold,italic,underline,strike,list,indent,align,link,image,clean,table,header,code,code-block,script,blockquote,direction"
+                                valid>
+                            </lightning-input-rich-text>
+                        </div>
+                    </template>
+
+                    <!-- DOC_RULE options (checkboxes) ONLY when rule has options -->
+                    <template if:true={showDetailsOptions}>
+                        <template for:each={detailsOptions} for:item="option">
+                            <div key={option.key} class="fieldRow">
+                                <lightning-input
+                                    type="checkbox"
+                                    label={option.label}
+                                    data-key={option.key}
+                                    onchange={handleOptionChange}>
+                                </lightning-input>
+                            </div>
+                        </template>
+                    </template>
+
+                    <!-- Dynamic inputs (e.g. Address picklist, Diagnosis lookup) -->
+                    <template if:true={hasDynamicInputs}>
+                        <template for:each={inputsWithValues} for:item="inp">
+                            <div key={inp.key} class="fieldRow">
+
+                            <!-- Diagnosis Codes editor – only for Submitter Letter -->
+                            <template if:true={isSubmitterLetterDoc}>
+
+                            <!-- ICD-9 -->
                             <div class="fieldRow">
-                                <label for="richTextInput">Document Content</label>
-                                <lightning-input-rich-text
-                                    id="richTextInput"
-                                    value={detailsTextHtml}
-                                    onchange={handleRichTextChange}
-                                    formats="font,size,bold,italic,underline,strike,list,indent,align,link,image,clean,table,header,code,code-block,script,blockquote,direction"
-                                    valid>
-                                </lightning-input-rich-text>
-                            </div>
-                        </template>
-
-                        <!-- DOC_RULE options (checkboxes) ONLY when rule has options -->
-                        <template if:true={showDetailsOptions}>
-                            <template for:each={detailsOptions} for:item="option">
-                                <div key={option.key} class="fieldRow">
-                                    <lightning-input
-                                        type="checkbox"
-                                        label={option.label}
-                                        data-key={option.key}
-                                        onchange={handleOptionChange}>
-                                    </lightning-input>
-                                </div>
-                            </template>
-                        </template>
-
-                        <!-- Claims selector: ONLY for "Cover Letter - CMS Submission - Carrier Letter" -->
-                        <template if:true={isClaimDoc}>
-                            <div class="fieldRow claimsField">
-                                <label>Please select the claims to include in the document.</label>
-
-                                <div class="claimsScroll">
-                                    <!-- Show checkboxes when related claims exist -->
-                                    <template if:true={hasClaims}>
-                                        <template for:each={claimRecords} for:item="c">
+                                <label class="slds-form-element__label">Leave the pre-selected ICD-9 code or enter a new one if needed</label>
+                                <div class="slds-form-element">
+                                    <div class={icd9ComboboxClass}
+                                        role="combobox"
+                                        aria-expanded={hasIcd9Options}
+                                        aria-haspopup="listbox">
+                                        <div class="slds-combobox__form-element slds-input-has-icon slds-input-has-icon_left" role="none">
                                             <lightning-input
-                                                key={c.id}
-                                                type="checkbox"
-                                                label={c.label}
-                                                value={c.id}
-                                                onchange={handleClaimCheckboxChange}>
+                                                type="search"
+                                                value={icd9SearchText}
+                                                placeholder="Type to search ICD-9 codes..."
+                                                oninput={handleIcd9Typing}
+                                                onchange={handleIcd9Typing}>
                                             </lightning-input>
-                                        </template>
-                                    </template>
-
-                                    <!-- Fallback message when no claims are found -->
-                                    <template if:false={hasClaims}>
-                                        <div class="empty">
-                                            No supporting claims found for this record.
+                                            <span class="slds-icon_container slds-input__icon slds-input__icon_left" title="Search">
+                                                <svg class="slds-icon slds-icon_x-small slds-icon-text-default" aria-hidden="true">
+                                                    <use xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#search"></use>
+                                                </svg>
+                                            </span>
                                         </div>
-                                    </template>
+
+                                        <template if:true={hasIcd9Options}>
+                                            <div class="slds-dropdown slds-dropdown_length-5 slds-dropdown_fluid" role="listbox">
+                                                <ul class="slds-listbox slds-listbox_vertical slds-listbox_fluid" role="presentation">
+                                                    <template for:each={icd9Options} for:item="opt">
+                                                        <li key={opt.value} role="presentation" class="slds-listbox__item">
+                                                            <div
+                                                                role="option"
+                                                                data-id={opt.value}
+                                                                data-label={opt.label}
+                                                                onclick={handleSelectIcd9}
+                                                                class="slds-media slds-listbox__option slds-listbox__option_plain slds-media_small">
+                                                                <span class="slds-media__body">
+                                                                    <span class="slds-truncate" title={opt.label}>{opt.label}</span>
+                                                                </span>
+                                                            </div>
+                                                        </li>
+                                                    </template>
+                                                </ul>
+                                            </div>
+                                        </template>
+                                    </div>
                                 </div>
                             </div>
+
+                            <!-- ICD-10 -->
+                            <div class="fieldRow">
+                                <label class="slds-form-element__label">Leave the pre-selected ICD-9 code or enter a new one if needed</label>
+                                <div class="slds-form-element">
+                                    <div class={icd10ComboboxClass}
+                                        role="combobox"
+                                        aria-expanded={hasIcd10Options}
+                                        aria-haspopup="listbox">
+                                        <div class="slds-combobox__form-element slds-input-has-icon slds-input-has-icon_left" role="none">
+                                            <lightning-input
+                                                type="search"
+                                                value={icd10SearchText}
+                                                placeholder="Type to search ICD-10 codes..."
+                                                oninput={handleIcd10Typing}
+                                                onchange={handleIcd10Typing}>
+                                            </lightning-input>
+                                            <span class="slds-icon_container slds-input__icon slds-input__icon_left" title="Search">
+                                                <svg class="slds-icon slds-icon_x-small slds-icon-text-default" aria-hidden="true">
+                                                    <use xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#search"></use>
+                                                </svg>
+                                            </span>
+                                        </div>
+
+                                        <template if:true={hasIcd10Options}>
+                                            <div class="slds-dropdown slds-dropdown_length-5 slds-dropdown_fluid" role="listbox">
+                                                <ul class="slds-listbox slds-listbox_vertical slds-listbox_fluid" role="presentation">
+                                                    <template for:each={icd10Options} for:item="opt">
+                                                        <li key={opt.value} role="presentation" class="slds-listbox__item">
+                                                            <div
+                                                                role="option"
+                                                                data-id={opt.value}
+                                                                data-label={opt.label}
+                                                                onclick={handleSelectIcd10}
+                                                                class="slds-media slds-listbox__option slds-listbox__option_plain slds-media_small">
+                                                                <span class="slds-media__body">
+                                                                    <span class="slds-truncate" title={opt.label}>{opt.label}</span>
+                                                                </span>
+                                                            </div>
+                                                        </li>
+                                                    </template>
+                                                </ul>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+
+                            </template>
+
+
+                                <!-- 2) Non-lookup dynamic inputs (picklists, text, number, etc.) -->
+                                <template if:false={inp._isLookup}>
+
+                                    <!-- Picklist combobox (e.g. AddressToUse) -->
+                                    <template if:true={inp._isCombo}>
+                                        <lightning-combobox
+                                            name={inp.key}
+                                            label={inp.label}
+                                            required={inp.required}
+                                            data-key={inp.key}
+                                            value={inp.value}
+                                            options={inp._options}
+                                            onchange={handleDynamicInputChange}>
+                                        </lightning-combobox>
+                                    </template>
+
+                                    <!-- Simple inputs (text, number, date, etc.) -->
+                                    <template if:false={inp._isCombo}>
+                                        <lightning-input
+                                            type={inp._renderType}
+                                            label={inp.label}
+                                            required={inp.required}
+                                            data-key={inp.key}
+                                            value={inp.value}
+                                            formatter={inp._formatter}
+                                            currency-code={inp._currencyCode}
+                                            step={inp._step}
+                                            onchange={handleDynamicInputChange}
+                                            oninput={handleDynamicInputChange}>
+                                        </lightning-input>
+                                    </template>
+                                </template>
+
+                            </div>
                         </template>
+                    </template>
+
+                    <!-- Claims selector -->
+                    <template if:true={isClaimDoc}>
+                        <div class="fieldRow claimsField">
+                            <label>Please select the claims to include in the document.</label>
+
+                            <div class="claimsScroll">
+                                <!-- Show checkboxes when related claims exist -->
+                                <template if:true={hasClaims}>
+                                    <template for:each={claimRecords} for:item="c">
+                                        <lightning-input
+                                            key={c.id}
+                                            type="checkbox"
+                                            label={c.label}
+                                            value={c.id}
+                                            onchange={handleClaimCheckboxChange}>
+                                        </lightning-input>
+                                    </template>
+                                </template>
+
+                                <!-- Fallback message when no claims are found -->
+                                <template if:false={hasClaims}>
+                                    <div class="empty">
+                                        No supporting claims found for this record.
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
 
                 </template>
 
@@ -175,7 +317,7 @@
                 <!-- Actions -->
                 <div class="actions">
                     <button class="btn ghost" onclick={goBackToDocs} disabled={loading}>Back</button>
-                    <button class="btn primary" onclick={generate} disabled={loading}>
+                    <button class="btn primary" onclick={generate} disabled={isGenerateDisabled}>
                         <template if:true={loading}>
                             <div class="loading-container fade-in">
                                 <div class="stylish-spinner"></div>
