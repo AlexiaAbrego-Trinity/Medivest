@@ -64,3 +64,9 @@ declare module "@salesforce/apex/DocumentRequestController.updateDiagnosisCodes"
 declare module "@salesforce/apex/DocumentRequestController.persistDynamicInputs" {
   export default function persistDynamicInputs(param: {caseId: any, inputs: any}): Promise<any>;
 }
+declare module "@salesforce/apex/DocumentRequestController.setCaseLRDates" {
+  export default function setCaseLRDates(param: {caseId: any, dateIssued: any, datePriorIssued: any}): Promise<any>;
+}
+declare module "@salesforce/apex/DocumentRequestController.fetchAccountAddresses" {
+  export default function fetchAccountAddresses(param: {caseId: any}): Promise<any>;
+}

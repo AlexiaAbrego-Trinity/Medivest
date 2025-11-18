@@ -755,7 +755,7 @@ public with sharing class DocumentRequestController {
     }
 
 
-        @AuraEnabled(cacheable=true)
+    @AuraEnabled(cacheable=true)
     public static List<OptionDTO> fetchPayeeAddresses(Id caseId) {
         List<OptionDTO> out = new List<OptionDTO>();
         if (caseId == null) return out;
@@ -1685,7 +1685,85 @@ public static void persistDynamicInputs(Id caseId, List<Map<String, Object>> inp
 }
 
 
+@AuraEnabled
+public static void setCaseLRDates(Id caseId, Date dateIssued, Date datePriorIssued) {
+    if (caseId == null) {
+        throw new AuraHandledException('Missing Case Id');
+    }
 
+    // Opcional: seguridad básica de acceso al objeto Case
+    Schema.DescribeSObjectResult d = Case.SObjectType.getDescribe();
+    if (!d.isAccessible()) {
+        throw new AuraHandledException('No access to Case.');
+    }
+
+    Case c = new Case(
+        Id = caseId,
+        LR_Date_Issued__c = dateIssued,
+        LR_Prior_Dispute_Issued__c = datePriorIssued
+    );
+    update c;
+}
+
+    @AuraEnabled(cacheable=true)
+    public static List<OptionDTO> fetchAccountAddresses(Id caseId) {
+        // Build dropdown options using:
+        // - Billing  : Case.Payee_Address__r.Address__c   (compound)
+        // - Mailing  : Account Billing Address
+        // - Main/Physical : Account Shipping Address
+        List<OptionDTO> out = new List<OptionDTO>();
+        if (caseId == null) return out;
+
+        // Query only what's needed; DO NOT try to read Street__c/City__c on Address__c
+        Case c = [
+            SELECT Id,
+                AccountId,
+                Payee_Address__r.Address__c // <- compound address case
+            FROM Case
+            WHERE Id = :caseId
+            LIMIT 1
+        ];
+
+        if (c.Payee_Address__r != null && c.Payee_Address__r.Address__c != null) {
+            System.Address a = c.Payee_Address__r.Address__c;
+            String billingVal = formatAddress(a.street, a.city, a.state, a.postalCode, a.country);
+            if (!String.isBlank(billingVal)) {
+                // Label = una línea; Value = multilínea
+                out.add(new OptionDTO('Billing - ' + billingVal.replace('\n', ' '), billingVal));
+            }
+        }
+
+        // ---- Mailing (Account Billing...) & Main/Physical (Account Shipping...) ----
+        if (c.AccountId != null) {
+            Account acc = [
+                SELECT Id, Name,
+                    BillingStreet, BillingCity, BillingState, BillingPostalCode, BillingCountry,
+                    ShippingStreet, ShippingCity, ShippingState, ShippingPostalCode, ShippingCountry
+                FROM Account
+                WHERE Id = :c.AccountId
+                LIMIT 1
+            ];
+
+            // Mailing = Account Billing
+            String mailing = formatAddress(
+                acc.BillingStreet, acc.BillingCity, acc.BillingState, acc.BillingPostalCode, acc.BillingCountry
+            );
+            if (!String.isBlank(mailing)) {
+                out.add(new OptionDTO('Mailing - ' + mailing.replace('\n', ' '), mailing));
+            }
+
+            // Main/Physical = Account Shipping
+            String mainPhysical = formatAddress(
+                acc.ShippingStreet, acc.ShippingCity, acc.ShippingState, acc.ShippingPostalCode, acc.ShippingCountry
+            );
+            if (!String.isBlank(mainPhysical)) {
+                out.add(new OptionDTO('Main/Physical - ' + mainPhysical.replace('\n', ' '), mainPhysical));
+            }
+        }
+
+
+        return out;
+    }
 
 
 
