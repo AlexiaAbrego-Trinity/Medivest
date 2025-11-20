@@ -70,3 +70,9 @@ declare module "@salesforce/apex/DocumentRequestController.setCaseLRDates" {
 declare module "@salesforce/apex/DocumentRequestController.fetchAccountAddresses" {
   export default function fetchAccountAddresses(param: {caseId: any}): Promise<any>;
 }
+declare module "@salesforce/apex/DocumentRequestController.setCaseFundingChange" {
+  export default function setCaseFundingChange(param: {caseId: any, fundingChange: any}): Promise<any>;
+}
+declare module "@salesforce/apex/DocumentRequestController.setCaseInsertInformation" {
+  export default function setCaseInsertInformation(param: {caseId: any, insertInformation: any}): Promise<any>;
+}

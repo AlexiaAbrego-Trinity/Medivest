@@ -31,6 +31,11 @@ import searchCodesByType
 import setCaseLRDates from '@salesforce/apex/DocumentRequestController.setCaseLRDates';
 import fetchAccountAddresses
   from '@salesforce/apex/DocumentRequestController.fetchAccountAddresses';
+import setCaseFundingChange
+  from '@salesforce/apex/DocumentRequestController.setCaseFundingChange';
+import setCaseInsertInformation
+  from '@salesforce/apex/DocumentRequestController.setCaseInsertInformation';
+
 
 
 
@@ -428,6 +433,183 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
           label: "Select date of demand letter",
           type: "date",
           required: true,
+        },
+      ],
+    },
+        // MR Request
+    {
+      match: "mr request",
+      baseLines: [],
+      options: [],
+      inputs: [
+        {
+          key: "addressToUse",
+          label: "Please Select the Address to Use",
+          type: "picklist",
+          required: true,
+          values: [],
+        },
+      ],
+    },
+
+    // No Account Activity - Unable to Reach - Case
+    {
+      match: "no account activity - unable to reach",
+      baseLines: [],
+      options: [],
+      inputs: [
+        {
+          key: "addressToUse",
+          label: "Please Select the Address to Use",
+          type: "picklist",
+          required: true,
+          values: [],
+        },
+      ],
+    },
+
+    // Refund Request
+    {
+      match: "refund request",
+      baseLines: [],
+      options: [],
+      inputs: [
+        {
+          key: "addressToUse",
+          label: "Please Select the Address to Use",
+          type: "picklist",
+          required: true,
+          values: [],
+        },
+      ],
+    },
+
+    // Welcome Letter - MCA - Case
+    {
+      match: "welcome letter - mca - case",
+      baseLines: [],
+      options: [],
+      inputs: [
+        {
+          key: "addressToUse",
+          label: "Please Select the Address to Use",
+          type: "picklist",
+          required: true,
+          values: [],
+        },
+      ],
+    },
+        // Overpayment Inquiry Response Letter - Case
+    {
+      match: "overpayment inquiry response letter - case",
+      baseLines: [],
+      options: [],
+      inputs: [
+        {
+          key: "addressToUse",
+          label: "Please Select the Address to Use",
+          type: "picklist",
+          required: true,
+          values: [],
+        },
+      ],
+    },
+
+    // Provider Refund Check Denial - Case
+    {
+      match: "provider refund check denial - case",
+      baseLines: [],
+      options: [],
+      inputs: [
+        {
+          key: "addressToUse",
+          label: "Please Select the Address to Use",
+          type: "picklist",
+          required: true,
+          values: [],
+        },
+      ],
+    },
+
+    // Unable to Reach - Welcome Call
+    {
+      match: "unable to reach - welcome call",
+      baseLines: [],
+      options: [],
+      inputs: [
+        {
+          key: "addressToUse",
+          label: "Please Select the Address to Use",
+          type: "picklist",
+          required: true,
+          values: [],
+        },
+      ],
+    },
+    // Cover Letter - CMS Submission - Re-Review Request
+    {
+      match: "cover letter - cms submission - re-review request",
+      baseLines: [],
+      options: [],
+      inputs: [
+        {
+          key: "addressToUse",
+          label: "Please Select Entity Address",
+          type: "picklist",
+          required: true,
+          values: [],
+        },
+        {
+          key: "insertInformation",
+          label: "Insert Information",
+          type: "text",
+          required: true,
+        },
+      ],
+    },
+    // CMS Submission - Cover Letter - Finding Change Request Letter From The Claimant
+    {
+      match: "cms submission - cover letter - finding change request letter from the claimant",
+      baseLines: [],
+      options: [],
+      inputs: [
+        {
+          key: "addressToUse",
+          label: "Please Select the Address to Use",
+          type: "picklist",
+          required: true,
+          values: [],
+        },
+      ],
+    },
+    // Cover Letter - CMS Submission - Funding Change Letter
+    {
+      match: "cover letter - cms submission - funding change letter",
+      baseLines: [],
+      options: [],
+      inputs: [
+        {
+          key: "addressToUse",
+          label: "Please Select Entity Address",
+          type: "picklist",
+          required: true,
+          values: [],
+        },
+        {
+          key: "fundingChange",
+          label: "Funding Change",
+          type: "picklist",
+          required: true,
+          values: [
+            {
+              value: "changed from Lump Sum to Structured Annuity",
+              label: "Changed from Lump Sum to Structured Annuity",
+            },
+            {
+              value: "changed from Structured Annuity to Lump Sum",
+              label: "Changed from Structured Annuity to Lump Sum",
+            },
+          ],
         },
       ],
     },
@@ -914,7 +1096,14 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
       // --- Submitter Letter: load Payee addresses into "addressToUse" picklist ---
       if (
         this.isCase &&
-        rule.match === "cover letter - cms submission - submitter letter"
+        (
+          rule.match === "cover letter - cms submission - submitter letter" ||
+          rule.match === "mr request" ||
+          rule.match === "overpayment inquiry response letter - case" ||
+          rule.match === "provider refund check denial - case" ||
+          rule.match === "cover letter - cms submission - re-review request" ||
+          rule.match === "cover letter - cms submission - funding change letter" 
+        )
       ) {
         try {
           // Fetch Billing / Mailing / Main addresses from Payee_Name__c via Apex
@@ -979,7 +1168,12 @@ if (
     this.currentRule.match === 'crc letter level 1 appeal redetermination' ||
     this.currentRule.match === 'crc letter level 2 appeal reconsideration' ||
     this.currentRule.match === 'bcrc letter level 1 appeal redetermination' ||
-    this.currentRule.match === 'bcrc letter initial appeal dispute'
+    this.currentRule.match === 'bcrc letter initial appeal dispute' ||
+    this.currentRule.match === 'no account activity - unable to reach' ||
+    this.currentRule.match === 'refund request' ||
+    this.currentRule.match === 'welcome letter - mca - case' ||
+    this.currentRule.match === 'unable to reach - welcome call' || 
+    this.currentRule.match === 'cms submission - cover letter - finding change request letter from the claimant'
   )
 ) {
   try {
@@ -1002,7 +1196,7 @@ if (
       };
     }
   } catch (err) {
-    console.warn('Failed to fetch Account addresses for CRC/BCRC', err);
+    console.warn('Failed to fetch Account addresses', err);
     const idx = this.currentInputs.findIndex(
       (i) => i.key === 'addressToUse'
     );
@@ -1452,6 +1646,78 @@ if (
         );
         this.loading = false;
         return;
+        }
+
+                // --- MR Request / No Account Activity / Refund Request / Welcome Letter MCA: persist selected address on Case ---
+        if (
+          this.isCase &&
+          (
+            this.currentRule?.match === "mr request" ||
+            this.currentRule?.match === "no account activity - unable to reach" ||
+            this.currentRule?.match === "refund request" ||
+            this.currentRule?.match === "welcome letter - mca - case" ||
+            this.currentRule?.match === "overpayment inquiry response letter - case" ||
+            this.currentRule?.match === "provider refund check denial - case" ||
+            this.currentRule?.match === "unable to reach - welcome call" ||
+            this.currentRule?.match === "cms submission - cover letter - finding change request letter from the claimant" ||
+            this.currentRule?.match === "cover letter - cms submission - re-review request" ||
+            this.currentRule?.match === "cover letter - cms submission - funding change letter"
+          )
+        ) {
+          const selectedAddr = this.valuesByKey?.addressToUse || null;
+          if (selectedAddr) {
+            try {
+              await setCaseAddress({
+                caseId: this.recordId,
+                address: selectedAddr,
+              });
+              console.log("Case address fields updated from addressToUse");
+            } catch (e) {
+              console.warn(
+                "Failed to persist Case address fields for address-based template",
+                e
+              );
+              // Non-blocking: document generation continues
+            }
+          }
+        }
+
+        // Funding Change Letter: persist selected funding change value on Case
+        if (
+          this.isCase &&
+          this.currentRule?.match === "cover letter - cms submission - funding change letter"
+        ) {
+          const sel = this.valuesByKey?.fundingChange || null;
+          if (sel) {
+            try {
+              await setCaseFundingChange({
+                caseId: this.recordId,
+                fundingChange: sel,
+              });
+            } catch (e) {
+              console.warn("Failed to set Funding Change on Case:", e);
+              // Non-blocking
+            }
+          }
+        }
+
+        // Re-Review Request: persist Insert Information text on Case
+        if (
+          this.isCase &&
+          this.currentRule?.match === "cover letter - cms submission - re-review request"
+        ) {
+          const info = this.valuesByKey?.insertInformation || null;
+          if (info) {
+            try {
+              await setCaseInsertInformation({
+                caseId: this.recordId,
+                insertInformation: info,
+              });
+            } catch (e) {
+              console.warn("Failed to set Insert Information on Case:", e);
+              // Non-blocking
+            }
+          }
         }
 
 

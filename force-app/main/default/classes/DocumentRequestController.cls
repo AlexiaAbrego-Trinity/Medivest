@@ -1765,6 +1765,34 @@ public static void setCaseLRDates(Id caseId, Date dateIssued, Date datePriorIssu
         return out;
     }
 
+    @AuraEnabled
+    public static void setCaseFundingChange(Id caseId, String fundingChange) {
+        if (caseId == null) return;
 
+        Case c = [
+            SELECT Id, trm_Funding_Change__c
+            FROM Case
+            WHERE Id = :caseId
+            LIMIT 1
+        ];
+
+        c.trm_Funding_Change__c = fundingChange;
+        update c;
+    }
+
+    @AuraEnabled
+    public static void setCaseInsertInformation(Id caseId, String insertInformation) {
+        if (caseId == null) return;
+
+        Case c = [
+            SELECT Id, trm_Insert_Information__c
+            FROM Case
+            WHERE Id = :caseId
+            LIMIT 1
+        ];
+
+        c.trm_Insert_Information__c = insertInformation;
+        update c;
+    }
 
 }
