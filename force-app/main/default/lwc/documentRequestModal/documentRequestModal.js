@@ -597,7 +597,7 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
         },
         {
           key: "fundingChange",
-          label: "Funding Change",
+          label: "Please Select The Funding Change",
           type: "picklist",
           required: true,
           values: [
