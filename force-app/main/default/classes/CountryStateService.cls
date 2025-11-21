@@ -13,4 +13,19 @@ public with sharing class CountryStateService {
         }
         return out;
     }
+
+    /**
+     * States active on org en la org (code -> tag).
+     * ie: "TX" -> "Texas"
+     */
+    @AuraEnabled(cacheable=true)
+    public static Map<String, String> getStateCodeToLabelMap() {
+        Map<String, String> out = new Map<String, String>();
+        for (Schema.PicklistEntry pe : User.StateCode.getDescribe().getPicklistValues()) {
+            if (pe.isActive()) {
+                out.put(pe.getValue(), pe.getLabel());
+            }
+        }
+        return out;
+    }
 }

@@ -118,6 +118,8 @@
                         </div>
                     </template>
 
+
+
                     <!-- DOC_RULE options (checkboxes) ONLY when rule has options -->
                     <template if:true={showDetailsOptions}>
                         <template for:each={detailsOptions} for:item="option">
@@ -134,6 +136,12 @@
 
                     <!-- Dynamic inputs (e.g. Address picklist, Diagnosis lookup) -->
                     <template if:true={hasDynamicInputs}>
+                        <template if:true={isBelWcmsaDoc}>
+                            <div class="infoBox">
+                                This document requires a Administrator With Full Address Assigned.
+                                Please confirm or enter the address below. It will be saved on the Administrator before generating the document.
+                            </div>
+                        </template>
                         <template for:each={inputsWithValues} for:item="inp">
                             <div key={inp.key} class="fieldRow">
 

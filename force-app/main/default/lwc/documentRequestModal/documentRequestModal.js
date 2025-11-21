@@ -35,6 +35,12 @@ import setCaseFundingChange
   from '@salesforce/apex/DocumentRequestController.setCaseFundingChange';
 import setCaseInsertInformation
   from '@salesforce/apex/DocumentRequestController.setCaseInsertInformation';
+import validateBELAdmin from '@salesforce/apex/DocumentRequestController.validateBELAdmin';
+import updateAdministrationAddress from '@salesforce/apex/DocumentRequestController.updateAdministrationAddress';
+import getCountryCodeToLabelMap
+  from '@salesforce/apex/CountryStateService.getCountryCodeToLabelMap';
+import getStateCodeToLabelMap
+  from '@salesforce/apex/CountryStateService.getStateCodeToLabelMap';
 
 
 
@@ -53,7 +59,7 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
   @api recordId;
 
   // Component version for debugging
-  VERSION = "v2.2.1";
+  VERSION = "v2.2.2";
 
   // UI state
   @track step = 1;
@@ -613,6 +619,60 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
         },
       ],
     },
+    // BEL - WCMSA - Case
+    {
+      match: "bel - wcmsa - case",
+      baseLines: [],
+      options: [],
+      inputs: [
+        {
+          key: "adminStreet",
+          label: "Admin Address Street",
+          type: "text",
+          required: true,
+        },
+        {
+          key: "adminCity",
+          label: "Admin Address City",
+          type: "text",
+          required: true,
+        },
+        {
+          key: "adminState",
+          label: "Admin Address State/Province Code",
+          type: "text", // luego lo podemos volver picklist si quieres
+          required: true,
+        },
+        {
+          key: "adminPostal",
+          label: "Admin Address Postal Code",
+          type: "text",
+          required: true,
+        },
+        {
+          key: "adminCountry",
+          label: "Admin Address Country Code",
+          type: "picklist", // aquí vamos a usar CountryStateService
+          required: true,
+          values: [],       // se llenan vía Apex
+        },
+      ],
+    },
+    // BEL - LMSA - Case
+    {
+      match: "bel - lmsa - case",
+      baseLines: [],
+      options: [],
+      inputs: [
+        {
+          key: "addressToUse",
+          label: "Please Select the Address to Use",
+          type: "picklist",
+          required: true,
+          values: [],
+        },
+      ],
+    },
   ];
 
   // JavaScript DOC_RULES helper methods
@@ -704,6 +764,10 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
   }
   /* END CLIMS */
 
+  get isBelWcmsaDoc() {
+    return this.currentRule?.match === 'bel - wcmsa - case';
+  }
+
   // Dynamic inputs support (Submitter Letter: address + diagnosis lookup)
   @track currentInputs = []; // Configuration for advanced inputs based on DOC_RULES
   @track valuesByKey = {}; // Stores user-entered values by input key
@@ -721,6 +785,10 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
   @track icd10SearchText = "";
   @track icd10Options = [];
   _icd10Debounce;
+
+  @track belAdminContext = null;
+
+
 
   get hasIcd9Options() {
     return Array.isArray(this.icd9Options) && this.icd9Options.length > 0;
@@ -809,6 +877,25 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
       "cover letter - cms submission - submitter letter"
     );
   }
+
+  get isGenerateDisabled() {
+  // 1) Siempre bloquear mientras está cargando
+  if (this.loading) {
+    return true;
+  }
+
+  // 2) Caso especial: BEL - WCMSA - Case sin Administration
+  if (this.isBelWcmsaDoc) {
+    // Si ya tenemos contexto y explícitamente NO hay Administration
+    if (this.belAdminContext && this.belAdminContext.hasAdministration === false) {
+      return true;
+    }
+  }
+
+  // 3) Resto de documentos: no bloquear por defecto
+  return false;
+  }
+
 
   get showRichText() {
     // Show rich text ONLY when:
@@ -1034,6 +1121,7 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
         : [];
       this.valuesByKey = {};
       this.codeOptions = [];
+      this.belAdminContext = null;
 
       // --- Carrier Letter: load Supporting_Claims__c related to this record ---
       if (
@@ -1161,53 +1249,149 @@ export default class DocumentRequestModal extends NavigationMixin(LightningEleme
       }
 
       // --- CRC / BCRC letters: load Account addresses into "addressToUse" picklist ---
-if (
-  this.currentRule &&
-  (
-    this.currentRule.match === 'crc letter initial appeal dispute' ||
-    this.currentRule.match === 'crc letter level 1 appeal redetermination' ||
-    this.currentRule.match === 'crc letter level 2 appeal reconsideration' ||
-    this.currentRule.match === 'bcrc letter level 1 appeal redetermination' ||
-    this.currentRule.match === 'bcrc letter initial appeal dispute' ||
-    this.currentRule.match === 'no account activity - unable to reach' ||
-    this.currentRule.match === 'refund request' ||
-    this.currentRule.match === 'welcome letter - mca - case' ||
-    this.currentRule.match === 'unable to reach - welcome call' || 
-    this.currentRule.match === 'cms submission - cover letter - finding change request letter from the claimant'
-  )
-) {
-  try {
-    const opts = await fetchAccountAddresses({ caseId: this.recordId });
+      if (
+        this.currentRule &&
+        (
+          this.currentRule.match === 'crc letter initial appeal dispute' ||
+          this.currentRule.match === 'crc letter level 1 appeal redetermination' ||
+          this.currentRule.match === 'crc letter level 2 appeal reconsideration' ||
+          this.currentRule.match === 'bcrc letter level 1 appeal redetermination' ||
+          this.currentRule.match === 'bcrc letter initial appeal dispute' ||
+          this.currentRule.match === 'no account activity - unable to reach' ||
+          this.currentRule.match === 'refund request' ||
+          this.currentRule.match === 'welcome letter - mca - case' ||
+          this.currentRule.match === 'unable to reach - welcome call' || 
+          this.currentRule.match === 'cms submission - cover letter - finding change request letter from the claimant' ||
+          this.currentRule.match === 'bel - lmsa - case'
+        )
+      ) {
+        try {
+          const opts = await fetchAccountAddresses({ caseId: this.recordId });
 
-    const addressOptions = (opts || []).map((o) => ({
-      label: o.label,
-      value: o.value, // multiline address
-    }));
+          const addressOptions = (opts || []).map((o) => ({
+            label: o.label,
+            value: o.value, // multiline address
+          }));
 
-    const idx = this.currentInputs.findIndex(
-      (i) => i.key === 'addressToUse'
-    );
-    if (idx >= 0) {
-      this.currentInputs[idx] = {
-        ...this.currentInputs[idx],
-        type: 'picklist',
-        values: addressOptions,
-        required: true,
-      };
-    }
-  } catch (err) {
-    console.warn('Failed to fetch Account addresses', err);
-    const idx = this.currentInputs.findIndex(
-      (i) => i.key === 'addressToUse'
-    );
-    if (idx >= 0) {
-      this.currentInputs[idx] = {
-        ...this.currentInputs[idx],
-        values: [],
-      };
-    }
-  }
-}
+          const idx = this.currentInputs.findIndex(
+            (i) => i.key === 'addressToUse'
+          );
+          if (idx >= 0) {
+            this.currentInputs[idx] = {
+              ...this.currentInputs[idx],
+              type: 'picklist',
+              values: addressOptions,
+              required: true,
+            };
+          }
+        } catch (err) {
+          console.warn('Failed to fetch Account addresses', err);
+          const idx = this.currentInputs.findIndex(
+            (i) => i.key === 'addressToUse'
+          );
+          if (idx >= 0) {
+            this.currentInputs[idx] = {
+              ...this.currentInputs[idx],
+              values: [],
+            };
+          }
+        }
+      }
+
+      // --- BEL - WCMSA - Case: check Administration address ---
+      if (this.currentRule && this.currentRule.match === 'bel - wcmsa - case' && this.isCase) {
+        try {
+          const ctx = await validateBELAdmin({ caseId: this.recordId });
+          this.belAdminContext = ctx;
+          console.log('BEL WCMSA: validateBELAdmin ctx => ', JSON.stringify(ctx));
+
+          if (!ctx.hasAdministration) {
+            console.log('BEL WCMSA: Case has no Administration__c; nothing to prompt.');
+
+            this.showToast(
+              'Missing Administration',
+              'This Case does not have an Administration record. Please assign an Administration before generating this BEL WCMSA document.',
+              'warning'
+            );
+
+            this.currentInputs = [];
+            // ⚠️ NO return; dejamos que el flujo continúe hacia this.step = 4
+          } else if (ctx.hasFullAddress) {
+            console.log('BEL WCMSA: Administration has full BEL address; no prompt needed.');
+            this.currentInputs = [];
+          } else {
+            // Falta address → mostramos inputs y cargamos picklists
+            console.log('BEL WCMSA: Admin address incomplete, missing fields:', ctx.missingFields);
+
+            const baseInputs = Array.isArray(this.currentRule.inputs)
+              ? this.currentRule.inputs.map(i => ({ ...i }))
+              : [];
+
+            try {
+              // Países (usamos sólo US para BEL, como antes)
+              const countryMap = await getCountryCodeToLabelMap();
+              const countryOptions = countryMap
+                ? Object.entries(countryMap)
+                    .filter(([code]) => code === 'US') // solo United States
+                    .map(([code, label]) => ({
+                      value: code,
+                      label: label,
+                    }))
+                : [];
+
+              const idxCountry = baseInputs.findIndex(i => i.key === 'adminCountry');
+              if (idxCountry >= 0) {
+                baseInputs[idxCountry] = {
+                  ...baseInputs[idxCountry],
+                  type: 'picklist',
+                  values: countryOptions,
+                };
+              }
+
+              // Estados/provincias habilitados en la org
+              const stateMap = await getStateCodeToLabelMap();
+              const stateOptions = stateMap
+                ? Object.entries(stateMap).map(([code, label]) => ({
+                    value: code,  // ej: "TX"
+                    label: label, // ej: "Texas"
+                  }))
+                : [];
+
+              const idxState = baseInputs.findIndex(i => i.key === 'adminState');
+              if (idxState >= 0) {
+                baseInputs[idxState] = {
+                  ...baseInputs[idxState],
+                  type: 'picklist',
+                  values: stateOptions,
+                };
+              }
+
+              console.log('BEL WCMSA: Loaded country options:', countryOptions);
+              console.log('BEL WCMSA: Loaded state options:', stateOptions);
+            } catch (picklistErr) {
+              console.warn('BEL WCMSA: Failed to load country/state picklists', picklistErr);
+              // Si falla, sólo deja los campos como estaban, sin opciones
+            }
+
+            this.currentInputs = baseInputs;
+          }
+        } catch (err) {
+          console.warn('BEL WCMSA: validateBELAdmin threw an error; showing inputs as fallback:', err);
+          const baseInputs = Array.isArray(this.currentRule.inputs)
+            ? this.currentRule.inputs.map(i => ({ ...i }))
+            : [];
+          this.currentInputs = baseInputs;
+        }
+      }
+
+
+
+
+
+
+
+
+
 
       console.log("Advanced document detected:", this.selectedTemplateName);
     } else {
@@ -1624,6 +1808,69 @@ if (
           }
         }
 
+        // --- BEL - WCMSA - Case: solo si FALTABA dirección ---
+        if (
+          this.currentRule?.match === 'bel - wcmsa - case' &&
+          this.belAdminContext &&              // tenemos contexto
+          !this.belAdminContext.hasFullAddress // sabemos que le faltaba address
+        ) {
+          const street  = this.valuesByKey?.adminStreet || '';
+          const city    = this.valuesByKey?.adminCity || '';
+          const state   = this.valuesByKey?.adminState || '';
+          const postal  = this.valuesByKey?.adminPostal || '';
+          const country = this.valuesByKey?.adminCountry || '';
+
+          if (!street || !city || !state || !postal || !country) {
+            this.showToast(
+              'Missing information',
+              'Please complete all Administration address fields before generating the document.',
+              'warning'
+            );
+            this.loading = false;
+            return;
+          }
+
+          try {
+            // Ya tenemos administrationId en el contexto; si no, volvemos a preguntarlo
+            let adminId = this.belAdminContext.administrationId;
+            if (!adminId) {
+              const info = await validateBELAdmin({ caseId: this.recordId });
+              adminId = info.administrationId;
+            }
+
+            if (!adminId) {
+              this.showToast(
+                'Error',
+                'This Case does not have an Administration record related.',
+                'error'
+              );
+              this.loading = false;
+              return;
+            }
+
+            await updateAdministrationAddress({
+              adminId: adminId,
+              street: street,
+              city: city,
+              state: state,
+              postalCode: postal,
+              countryCodeOpt: country,
+            });
+          } catch (e) {
+            console.warn('Failed to update Administration address', e);
+            this.showToast(
+              'Error',
+              this.errMsg(e) || 'Failed to save Administration address.',
+              'error'
+            );
+            this.loading = false;
+            return;
+          }
+        }
+
+
+
+
         // 2.7 LR Dates: if dynamic inputs captured them, persist via setCaseLRDates
         try {
         const lrDateIssued = this.valuesByKey?.dateIssued || null;
@@ -1661,7 +1908,8 @@ if (
             this.currentRule?.match === "unable to reach - welcome call" ||
             this.currentRule?.match === "cms submission - cover letter - finding change request letter from the claimant" ||
             this.currentRule?.match === "cover letter - cms submission - re-review request" ||
-            this.currentRule?.match === "cover letter - cms submission - funding change letter"
+            this.currentRule?.match === "cover letter - cms submission - funding change letter" ||
+            this.currentRule?.match === "bel - lmsa - case"
           )
         ) {
           const selectedAddr = this.valuesByKey?.addressToUse || null;

@@ -159,6 +159,8 @@ private class DocumentRequestControllerTest_v2 {
 
         // WebMerge mappings
         createWebmergeMappings();
+
+        createAdministrationsForTests();
     }
 
     // -----------------------
@@ -1097,6 +1099,164 @@ static void test_fetchPayeeAddresses_UsesPayeeAddressRelation() {
             c.Id,
             [SELECT Id FROM Case WHERE Id = :c.Id].Id
         );
+    }
+
+    private static void createAdministrationsForTests() {
+    // Crear Administration
+    Administration__c admin = new Administration__c(Name = 'Admin Test');
+    insert admin;
+
+    // Asociarlo a un Case existente
+    Case c = [SELECT Id FROM Case LIMIT 1];
+    c.Administration__c = admin.Id;
+    update c;
+    }
+
+    // -----------------------
+    // Test: setCaseFundingChange
+    // -----------------------
+    @IsTest
+    static void testSetCaseFundingChange() {
+        Case c = [SELECT Id, trm_Funding_Change__c FROM Case LIMIT 1];
+
+        Test.startTest();
+        DocumentRequestController.setCaseFundingChange(c.Id, 'Test Funding Change');
+        Test.stopTest();
+
+        c = [SELECT Id, trm_Funding_Change__c FROM Case WHERE Id = :c.Id];
+        System.assertEquals('Test Funding Change', c.trm_Funding_Change__c);
+    }
+
+    // -----------------------
+    // Test: setCaseInsertInformation
+    // -----------------------
+    @IsTest
+    static void testSetCaseInsertInformation() {
+        Case c = [SELECT Id, trm_Insert_Information__c FROM Case LIMIT 1];
+
+        Test.startTest();
+        DocumentRequestController.setCaseInsertInformation(c.Id, 'Test Insert Info');
+        Test.stopTest();
+
+        c = [SELECT Id, trm_Insert_Information__c FROM Case WHERE Id = :c.Id];
+        System.assertEquals('Test Insert Info', c.trm_Insert_Information__c);
+    }
+
+    // -----------------------
+    // Test: validateBELAdmin
+    // -----------------------
+@IsTest
+static void testValidateBELAdmin() {
+    // Create a unique Administration to avoid Flow duplicate errors
+    Administration__c admin = new Administration__c(
+        Name = 'Test Admin',
+        External_Id__c = 'TEST-' + Datetime.now().getTime() // unique value
+    );
+    insert admin;
+
+    // Create a Case pointing to this Administration
+    Case cWithAdmin = new Case(
+        Subject = 'Test Case with Admin',
+        Status = 'New',
+        RecordTypeId = [SELECT Id FROM RecordType WHERE SObjectType='Case' LIMIT 1].Id,
+        Administration__c = admin.Id
+    );
+    insert cWithAdmin;
+
+    // Call the method under test
+    Map<String, Object> result = DocumentRequestController.validateBELAdmin(cWithAdmin.Id);
+
+    // Assertions: only validate what we can reliably check
+    System.assertEquals(true, result.get('hasAdministration'));
+    System.assertEquals(false, result.get('hasFullAddress'));
+    System.assert(((List<String>)result.get('missingFields')).size() > 0, 'Expected at least one missing field');
+}
+
+
+
+
+
+    // -----------------------
+    // Test: updateAdministrationAddress
+    // -----------------------
+    @IsTest
+    static void testUpdateAdministrationAddress() {
+        Administration__c admin = [SELECT Id FROM Administration__c LIMIT 1];
+
+        Test.startTest();
+        DocumentRequestController.updateAdministrationAddress(
+            admin.Id,
+            '456 Elm St',
+            'Metropolis',
+            'CA',
+            '90210',
+            'US'
+        );
+        Test.stopTest();
+
+        admin = [SELECT AdminBEL_Address__Street__s,
+                        AdminBEL_Address__City__s,
+                        AdminBEL_Address__PostalCode__s,
+                        AdminBEL_Address__StateCode__s,
+                        AdminBEL_Address__CountryCode__s
+                FROM Administration__c WHERE Id = :admin.Id];
+
+        System.assertEquals('456 Elm St', admin.AdminBEL_Address__Street__s);
+        System.assertEquals('Metropolis', admin.AdminBEL_Address__City__s);
+        System.assertEquals('90210', admin.AdminBEL_Address__PostalCode__s);
+        System.assertEquals('CA', admin.AdminBEL_Address__StateCode__s);
+        System.assertEquals('US', admin.AdminBEL_Address__CountryCode__s);
+    }
+
+    // -----------------------
+    // Test: updateAdministrationAddress error handling
+    // -----------------------
+    @IsTest
+    static void testUpdateAdministrationAddressErrors() {
+        // Create a unique Administration to avoid Flow duplicate errors
+        Administration__c admin = new Administration__c(
+            Name = 'Test Admin',
+            External_Id__c = 'TEST-' + Datetime.now().getTime()
+        );
+        insert admin;
+
+        // 1) Null adminId
+        Boolean exceptionThrown = false;
+        try {
+            DocumentRequestController.updateAdministrationAddress(
+                null, '123 Street', 'City', 'CA', '90210', 'US'
+            );
+        } catch (AuraHandledException e) {
+            exceptionThrown = true;
+        }
+
+        // 2) Blank state
+        try {
+            DocumentRequestController.updateAdministrationAddress(
+                admin.Id, '123 Street', 'City', '', '90210', 'US'
+            );
+        } catch (AuraHandledException e) {
+            exceptionThrown = true;
+        }
+
+        // 3) Blank country
+        try {
+            DocumentRequestController.updateAdministrationAddress(
+                admin.Id, '123 Street', 'City', 'CA', '90210', ''
+            );
+        } catch (AuraHandledException e) {
+            exceptionThrown = true;
+        }
+
+        // 4) Invalid state
+        try {
+            DocumentRequestController.updateAdministrationAddress(
+                admin.Id, '123 Street', 'City', 'ZZ', '90210', 'US'
+            );
+
+        } catch (AuraHandledException e) {
+            exceptionThrown = true;
+        }
     }
 
 

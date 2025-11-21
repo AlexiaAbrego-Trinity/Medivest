@@ -76,3 +76,9 @@ declare module "@salesforce/apex/DocumentRequestController.setCaseFundingChange"
 declare module "@salesforce/apex/DocumentRequestController.setCaseInsertInformation" {
   export default function setCaseInsertInformation(param: {caseId: any, insertInformation: any}): Promise<any>;
 }
+declare module "@salesforce/apex/DocumentRequestController.validateBELAdmin" {
+  export default function validateBELAdmin(param: {caseId: any}): Promise<any>;
+}
+declare module "@salesforce/apex/DocumentRequestController.updateAdministrationAddress" {
+  export default function updateAdministrationAddress(param: {adminId: any, street: any, city: any, state: any, postalCode: any, countryCodeOpt: any}): Promise<any>;
+}

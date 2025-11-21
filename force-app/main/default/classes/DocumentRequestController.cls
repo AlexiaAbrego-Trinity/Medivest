@@ -1795,4 +1795,93 @@ public static void setCaseLRDates(Id caseId, Date dateIssued, Date datePriorIssu
         update c;
     }
 
+    @AuraEnabled(cacheable=false)
+    public static Map<String, Object> validateBELAdmin(Id caseId) {
+        Map<String, Object> result = new Map<String, Object>{
+            'hasAdministration' => false,
+            'hasFullAddress' => false,
+            'missingFields' => new List<String>(),
+            'administrationId' => null
+        };
+        if (caseId == null) return result;
+
+        Case c = [SELECT Id, Administration__c FROM Case WHERE Id = :caseId LIMIT 1];
+        if (c.Administration__c == null) return result;
+
+        result.put('hasAdministration', true);
+        result.put('administrationId', c.Administration__c);
+
+        Administration__c a = [
+            SELECT Id,
+                AdminBEL_Address__c,
+                AdminBEL_Address__CountryCode__s,
+                AdminBEL_Address__StateCode__s
+            FROM Administration__c
+            WHERE Id = :c.Administration__c
+            LIMIT 1
+        ];
+
+        System.Address addr = a.AdminBEL_Address__c;
+        List<String> missing = new List<String>();
+
+        if (addr == null || String.isBlank(addr.street))     missing.add('Street');
+        if (addr == null || String.isBlank(addr.city))       missing.add('City');
+        if (addr == null || String.isBlank(addr.postalCode)) missing.add('Postal Code');
+
+        Boolean hasState   = !String.isBlank(a.AdminBEL_Address__StateCode__s)
+                            || (addr != null && !String.isBlank(addr.state));
+        Boolean hasCountry = !String.isBlank(a.AdminBEL_Address__CountryCode__s)
+                            || (addr != null && !String.isBlank(addr.country));
+
+        if (!hasState)   missing.add('State');
+        if (!hasCountry) missing.add('Country');
+
+        if (missing.isEmpty()) {
+            result.put('hasFullAddress', true);
+        } else {
+            result.put('missingFields', missing);
+        }
+        return result;
+    }
+
+    // DocumentRequestController.cls (REPLACE existing method)
+    @AuraEnabled
+    public static void updateAdministrationAddress(
+        Id adminId,
+        String street,
+        String city,
+        String state,          // State/Province CODE (e.g., "CA")
+        String postalCode,
+        String countryCodeOpt  // Country CODE (e.g., "US")
+    ) {
+        if (adminId == null) throw new AuraHandledException('Missing Administration Id.');
+
+        // Normalize and enforce both codes
+        String cc = (countryCodeOpt == null ? '' : countryCodeOpt.trim().toUpperCase());
+        String sc = (state == null ? '' : state.trim().toUpperCase());
+
+        if (String.isBlank(cc)) throw new AuraHandledException('Country is required when specifying a state.');
+        if (String.isBlank(sc)) throw new AuraHandledException('State is required.');
+
+        // Minimal server-side validation: ensure the State code exists and is enabled in this org
+        Map<String,String> orgStates = new Map<String,String>();
+        for (Schema.PicklistEntry pe : User.StateCode.getDescribe().getPicklistValues()) {
+            if (pe.isActive()) orgStates.put(pe.getValue(), pe.getLabel());
+        }
+        if (!orgStates.containsKey(sc)) {
+            throw new AuraHandledException('The selected State is not enabled in this org.');
+        }
+
+        // Persist both *Code__s fields to respect State & Country Picklists
+        update new Administration__c(
+            Id = adminId,
+            AdminBEL_Address__Street__s      = street,
+            AdminBEL_Address__City__s        = city,
+            AdminBEL_Address__PostalCode__s  = postalCode,
+            AdminBEL_Address__StateCode__s   = sc,
+            AdminBEL_Address__CountryCode__s = cc
+        );
+    }
+
+
 }
